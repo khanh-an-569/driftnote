@@ -9,14 +9,14 @@ tags: []
 
 # {{claim-oriented-title}}
 
-## Ý chính
+## Key idea / Ý chính
 
-## Giải thích
+## Explanation / Giải thích
 
-## Khi nào hữu ích
+## When useful / Khi nào hữu ích
 
-## Giới hạn
+## Limitations / Giới hạn
 
-## Nguồn
+## Sources / Nguồn
 
 - [[Source note]]

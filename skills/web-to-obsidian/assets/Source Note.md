@@ -18,13 +18,13 @@ topics: []
 
 # {{title}}
 
-> [!info] Nguồn
-> [Mở liên kết gốc]({{source_url}})
+> [!info] Source / Nguồn
+> [Open original link / Mở liên kết gốc]({{source_url}})
 
-## Vì sao tôi lưu
+## Why I saved this / Vì sao tôi lưu
 
-## Đoạn đã chọn
+## Selected excerpt / Đoạn đã chọn
 
-## Nội dung nguồn
+## Source content / Nội dung nguồn
 
-## Ghi chú của tôi
+## My notes / Ghi chú của tôi

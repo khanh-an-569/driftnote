@@ -4,7 +4,9 @@
 
 An inbox-first second-brain workflow for capturing browser content with ChatGPT, enriching public pages with Tavily when needed, and distilling only durable insights into Obsidian notes.
 
-[Đọc bằng tiếng Việt](README.vi.md)
+**English** | [Tiếng Việt](README.vi.md)
+
+Bản tiếng Việt đầy đủ được duy trì song song trong `README.vi.md`.
 
 ## Why this workflow
 
@@ -121,15 +123,15 @@ It returns JSON with `created`, `duplicate`, `dry-run`, or `error` status. It no
 - Audio, video, cookies, tokens, credentials, and full song lyrics are not stored.
 - The workflow never silently overwrites or deletes a note.
 
-See [Security](docs/security.md) for the full boundary.
+See [Architecture / Kiến trúc](docs/architecture.md) and [Security and privacy / Bảo mật và quyền riêng tư](docs/security.md) for details.
 
 ## Validate
 
 ```powershell
 python -m unittest discover -s tests -v
-python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
-python "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-inbox-processor
-python "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
+python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
+python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-inbox-processor
+python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
 
 ## License
