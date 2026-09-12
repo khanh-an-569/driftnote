@@ -123,7 +123,7 @@ It returns JSON with `created`, `duplicate`, `dry-run`, or `error` status. It no
 - Audio, video, cookies, tokens, credentials, and full song lyrics are not stored.
 - The workflow never silently overwrites or deletes a note.
 
-See [Architecture / Kiến trúc](docs/architecture.md) and [Security and privacy / Bảo mật và quyền riêng tư](docs/security.md) for details.
+See [Architecture](docs/architecture.md) and [Security and privacy](docs/security.md) for details.
 
 ## Validate
 

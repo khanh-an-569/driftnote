@@ -121,7 +121,7 @@ Công cụ trả JSON với trạng thái `created`, `duplicate`, `dry-run` ho�
 - Không lưu audio, video, cookie, token, thông tin xác thực hoặc toàn bộ lời bài hát.
 - Workflow không âm thầm ghi đè hoặc xóa note.
 
-Xem [Kiến trúc / Architecture](docs/architecture.md) và [Bảo mật và quyền riêng tư / Security and privacy](docs/security.md) để biết chi tiết.
+Xem [Kiến trúc](docs/architecture.vi.md) và [Bảo mật và quyền riêng tư](docs/security.vi.md) để biết chi tiết.
 
 ## Kiểm tra
 
