@@ -1,5 +1,7 @@
 # Web to Obsidian
 
+[![CI](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml)
+
 An inbox-first second-brain workflow for capturing browser content with ChatGPT, enriching public pages with Tavily when needed, and distilling only durable insights into Obsidian notes.
 
 [Đọc bằng tiếng Việt](README.vi.md)
