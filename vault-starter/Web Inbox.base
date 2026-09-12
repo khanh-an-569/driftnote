@@ -1,0 +1,76 @@
+filters:
+  and:
+    - 'type == "source"'
+    - 'file.ext == "md"'
+
+formulas:
+  age_days: '(now() - file.ctime).days'
+  source_link: 'link(source_url, "Open")'
+
+properties:
+  content_type:
+    displayName: "Type"
+  status:
+    displayName: "Status"
+  captured:
+    displayName: "Captured"
+  formula.age_days:
+    displayName: "Age"
+  formula.source_link:
+    displayName: "Source"
+
+views:
+  - type: table
+    name: "Inbox"
+    filters:
+      and:
+        - 'status == "inbox"'
+    order:
+      - file.name
+      - content_type
+      - platform
+      - captured
+      - formula.age_days
+      - formula.source_link
+
+  - type: table
+    name: "Reading"
+    filters:
+      and:
+        - 'status == "inbox"'
+        - or:
+            - 'content_type == "article"'
+            - 'content_type == "news"'
+    order:
+      - file.name
+      - author
+      - published
+      - captured
+      - formula.source_link
+
+  - type: cards
+    name: "Music"
+    filters:
+      and:
+        - or:
+            - 'content_type == "music"'
+            - 'content_type == "podcast"'
+            - 'content_type == "video"'
+    order:
+      - file.name
+      - content_type
+      - author
+      - platform
+      - formula.source_link
+
+  - type: table
+    name: "Processed"
+    filters:
+      and:
+        - 'status == "processed"'
+    order:
+      - file.name
+      - content_type
+      - processed
+      - derived_notes
+      - formula.source_link

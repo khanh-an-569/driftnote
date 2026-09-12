@@ -1,0 +1,11 @@
+.env
+web-to-obsidian.yaml
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+dist/
+build/
+*.tmp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Obsidian Inbox Processor"
+  short_description: "Distill captured sources into durable notes"
+  default_prompt: "Use $obsidian-inbox-processor to process my pending web captures into durable Obsidian notes."
+
+policy:
+  allow_implicit_invocation: true

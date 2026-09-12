@@ -1,0 +1,34 @@
+{
+  "name": "web-to-obsidian",
+  "version": "0.1.0",
+  "description": "Capture browser sources into an Obsidian inbox, then distill only durable insights into linked notes.",
+  "author": {
+    "name": "khanh-an-569"
+  },
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "second-brain",
+    "web-clipper",
+    "tavily",
+    "knowledge-management"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Web to Obsidian",
+    "shortDescription": "Capture web sources and distill durable notes.",
+    "longDescription": "An inbox-first second-brain workflow for ChatGPT browser capture, privacy-aware Tavily extraction, duplicate-safe Obsidian source notes, and deliberate knowledge distillation.",
+    "developerName": "khanh-an-569",
+    "category": "Productivity",
+    "capabilities": [
+      "Browser capture",
+      "Local file write",
+      "Web extraction"
+    ],
+    "defaultPrompt": [
+      "Save this browser tab to my Obsidian inbox.",
+      "Process my pending web captures into durable notes."
+    ],
+    "brandColor": "#7C3AED"
+  }
+}

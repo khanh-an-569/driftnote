@@ -1,0 +1,7 @@
+interface:
+  display_name: "Web to Obsidian"
+  short_description: "Capture browser content into Obsidian"
+  default_prompt: "Use $web-to-obsidian to save the current browser tab into my Obsidian inbox."
+
+policy:
+  allow_implicit_invocation: true
