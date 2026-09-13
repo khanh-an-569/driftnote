@@ -1,6 +1,6 @@
 # Security and privacy
 
-**English** | [Tiếng Việt](security.vi.md)
+**English** | [Tiếng Việt](docs/security.vi.md)
 
 ## Trust boundaries
 
