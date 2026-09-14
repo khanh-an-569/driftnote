@@ -24,6 +24,10 @@ Fallback for public URLs whose browser capture is empty or incomplete. The polic
 
 Stores immutable evidence plus user context. `status` drives workflow; folders provide broad ownership boundaries, not a deep topic taxonomy.
 
+### `obsidian-clip-beautifier`
+
+Configures and audits the formatting and presentation layer around captured Markdown: installs the Web Clipper template and scoped CSS snippet, checks Linter rules, and prepares polished exports. It operates on the inbox between capture and distillation, never captures browser content itself, and never distills sources into knowledge notes.
+
 ### `obsidian-inbox-processor`
 
 Performs bounded review. It may keep a source, mark it for review, or create zero or more atomic knowledge notes. It never deletes raw content.

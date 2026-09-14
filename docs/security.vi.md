@@ -32,6 +32,6 @@ Giữ trích đoạn ở mức hợp lý và ghi rõ nguồn. Với bài hát, v
 Trước mỗi bản phát hành:
 
 1. Tìm `tvly-`, token, thông tin xác thực, đường dẫn vault cá nhân, cookie và nội dung riêng tư đã thu thập trong repo.
-2. Chạy test và trình xác thực cho cả hai skill.
+2. Chạy test và trình xác thực cho từng skill.
 3. Kiểm tra ví dụ để loại bỏ dữ liệu cá nhân thật.
 4. Thu hồi và tạo lại mọi khóa có thể đã xuất hiện trong lịch sử Git hoặc ảnh chụp màn hình.

@@ -31,6 +31,19 @@ class RepositoryTests(unittest.TestCase):
             )
             self.assertIn(f"${skill_name}", ui["interface"]["default_prompt"])
 
+    def test_architecture_docs_list_every_skill(self) -> None:
+        skill_names = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
+        self.assertTrue(skill_names)
+
+        for doc_name in ("architecture.md", "architecture.vi.md"):
+            text = (ROOT / "docs" / doc_name).read_text(encoding="utf-8")
+            for skill_name in skill_names:
+                self.assertIn(
+                    f"### `{skill_name}`",
+                    text,
+                    f"{doc_name} is missing a component section for `{skill_name}`",
+                )
+
     def test_yaml_and_base_files_parse(self) -> None:
         paths = [
             ROOT / "web-to-obsidian.example.yaml",

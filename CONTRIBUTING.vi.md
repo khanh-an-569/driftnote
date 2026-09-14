@@ -17,6 +17,6 @@ Trước khi mở pull request:
 
 1. Thêm hoặc cập nhật test cho hành vi có thể quan sát.
 2. Chạy bước quét bí mật được mô tả trong `docs/security.vi.md`.
-3. Kiểm tra cả hai file `SKILL.md` bằng trình xác thực skill của Codex khi công cụ này có sẵn.
+3. Kiểm tra `SKILL.md` của từng skill bằng trình xác thực skill của Codex khi công cụ này có sẵn.
 4. Kiểm tra `.codex-plugin/plugin.json` bằng trình xác thực plugin của Codex khi công cụ này có sẵn.
 5. Không commit đường dẫn vault thật, nội dung riêng tư đã thu thập hoặc API key.

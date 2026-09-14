@@ -32,6 +32,6 @@ Preserve reasonable excerpts and source attribution. For songs, videos, and podc
 Before every release:
 
 1. Search the repository for `tvly-`, tokens, credentials, personal vault paths, cookies, and captured private content.
-2. Run tests and both skill validators.
+2. Run tests and the validator for every skill.
 3. Review examples for real personal data.
 4. Rotate any key that may have appeared in Git history or screenshots.

@@ -25,10 +25,12 @@
     "capabilities": [
       "Browser capture",
       "Local file write",
-      "Web extraction"
+      "Web extraction",
+      "Vault formatting setup"
     ],
     "defaultPrompt": [
       "Save this browser tab to my Obsidian inbox.",
+      "Set up the Web Clipper template, Linter, and scoped CSS in my Obsidian vault.",
       "Process my pending web captures into durable notes."
     ],
     "brandColor": "#7C3AED"

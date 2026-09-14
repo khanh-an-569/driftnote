@@ -24,6 +24,10 @@ Là phương án dự phòng cho URL công khai khi nội dung từ trình duy�
 
 Lưu bằng chứng không thay đổi cùng ngữ cảnh của người dùng. `status` điều khiển workflow; thư mục chỉ xác định phạm vi lớn, không tạo hệ phân loại chủ đề sâu.
 
+### `obsidian-clip-beautifier`
+
+Cấu hình và kiểm tra lớp định dạng và trình bày quanh Markdown đã thu thập: cài template Web Clipper và CSS snippet có phạm vi, kiểm tra rule của Linter, chuẩn bị bản export đã đánh bóng. Skill hoạt động trên inbox, giữa bước thu thập và bước chắt lọc; nó không tự thu thập nội dung trình duyệt và không chắt lọc nguồn thành knowledge note.
+
 ### `obsidian-inbox-processor`
 
 Thực hiện việc rà soát trong phạm vi giới hạn. Skill có thể giữ nguyên nguồn, đánh dấu cần xem lại hoặc tạo không, một hay nhiều atomic knowledge note. Nội dung thô không bao giờ bị xóa.
