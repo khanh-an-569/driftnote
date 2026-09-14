@@ -20,6 +20,14 @@ Chuyển selection, tab hoặc URL thành một source note. Skill áp dụng qu
 
 Là phương án dự phòng cho URL công khai khi nội dung từ trình duyệt trống hoặc chưa đầy đủ. Chính sách là trích xuất `basic` trước, thử lại `advanced` một lần, rồi tạo note chỉ có liên kết. Tavily Search chỉ dành cho việc xác minh và tìm nguồn chuẩn.
 
+### `github-repo-research`
+
+Chuyển một đến ba câu hỏi tập trung thành request Tavily Search chỉ giới hạn ở `github.com`. Helper chuẩn hóa URL gốc repo, loại trang GitHub không phải repo, gộp kết quả lặp và xuất bằng chứng để tạo shortlist hoặc báo cáo có nguồn. Relevance của Tavily chỉ hỗ trợ tìm kiếm; metadata repo dễ thay đổi phải được xác minh riêng.
+
+### Tavily Search
+
+Tìm repo GitHub công khai cho skill nghiên cứu riêng. Mặc định dùng tìm kiếm `basic`; `advanced` và raw content chỉ bật khi snippet chưa đủ. Việc tìm kiếm không cho phép clone, chạy, sửa, publish hoặc push code tìm được hay báo cáo local.
+
 ### Hộp thư Obsidian
 
 Lưu bằng chứng không thay đổi cùng ngữ cảnh của người dùng. `status` điều khiển workflow; thư mục chỉ xác định phạm vi lớn, không tạo hệ phân loại chủ đề sâu.

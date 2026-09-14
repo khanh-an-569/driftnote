@@ -3,7 +3,7 @@
 
 The script uses only the Python standard library. It never accepts an API key
 as an argument; optional Tavily extraction reads TAVILY_API_KEY from the
-environment.
+process environment or a local .env file.
 """
 
 from __future__ import annotations
@@ -65,6 +65,7 @@ WINDOWS_RESERVED_NAMES = {
 }
 CONTENT_TYPES = ("article", "news", "bookmark", "music", "video", "podcast", "social", "other")
 CAPTURE_METHODS = ("selection", "chrome", "tavily-basic", "tavily-advanced", "hybrid", "manual")
+ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class CaptureError(RuntimeError):
@@ -76,6 +77,78 @@ class TavilyResult:
     content: str
     depth: str
     request_id: str | None
+
+
+def _dotenv_value(raw_value: str) -> str:
+    value = raw_value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
+        return value[1:-1]
+    comment = re.search(r"\s+#", value)
+    if comment:
+        value = value[: comment.start()].rstrip()
+    return value
+
+
+def load_dotenv(path_value: str | None = None, *, workspace: Path | None = None) -> Path | None:
+    """Load a local .env without overriding variables already in the process."""
+
+    env_path = Path(path_value).expanduser() if path_value else (workspace or Path.cwd()) / ".env"
+    if not env_path.is_absolute():
+        env_path = (workspace or Path.cwd()) / env_path
+    env_path = env_path.resolve()
+    if not env_path.exists():
+        if path_value:
+            raise CaptureError(f"Environment file does not exist: {env_path}")
+        return None
+    if not env_path.is_file():
+        raise CaptureError(f"Environment file is not a file: {env_path}")
+
+    for line_number, raw_line in enumerate(env_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            raise CaptureError(f"Invalid .env assignment at {env_path}:{line_number}")
+        name, raw_value = line.split("=", 1)
+        name = name.strip()
+        if not ENV_NAME_PATTERN.fullmatch(name):
+            raise CaptureError(f"Invalid .env variable name at {env_path}:{line_number}")
+        os.environ.setdefault(name, _dotenv_value(raw_value))
+    return env_path
+
+
+def _vault_from_yaml(config_path: Path) -> str | None:
+    if not config_path.is_file():
+        return None
+    for raw_line in config_path.read_text(encoding="utf-8-sig").splitlines():
+        match = re.match(r"^\s*vault_root\s*:\s*(.*?)\s*$", raw_line)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def resolve_vault(vault_argument: str | None, *, workspace: Path | None = None) -> str:
+    """Resolve CLI, environment, then workspace YAML configuration."""
+
+    if vault_argument and vault_argument.strip():
+        return vault_argument.strip()
+    env_vault = os.environ.get("OBSIDIAN_VAULT_PATH", "").strip()
+    if env_vault:
+        return env_vault
+    config_path = (workspace or Path.cwd()) / "web-to-obsidian.yaml"
+    config_vault = _vault_from_yaml(config_path.resolve())
+    if config_vault:
+        return config_vault
+    raise CaptureError(
+        "Obsidian vault is not configured. Use --vault, set OBSIDIAN_VAULT_PATH in .env, "
+        "or add vault_root to web-to-obsidian.yaml."
+    )
 
 
 def canonicalize_url(value: str) -> str:
@@ -457,7 +530,14 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--vault", required=True, help="Absolute path to the Obsidian vault")
+    parser.add_argument(
+        "--vault",
+        help="Vault path; otherwise OBSIDIAN_VAULT_PATH or web-to-obsidian.yaml is used",
+    )
+    parser.add_argument(
+        "--env-file",
+        help="Optional .env path; defaults to .env in the current working directory",
+    )
     parser.add_argument("--url", required=True, help="Original public or browser URL")
     parser.add_argument("--title", default="", help="Source title")
     parser.add_argument("--author", default="", help="Source author or artist")
@@ -480,10 +560,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _configure_utf8_console() -> None:
+    """Keep JSON output Unicode-safe on Windows legacy code pages."""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    _configure_utf8_console()
     parser = build_parser()
     args = parser.parse_args()
     try:
+        workspace = Path.cwd()
+        load_dotenv(args.env_file, workspace=workspace)
+        args.vault = resolve_vault(args.vault, workspace=workspace)
         result = run_capture(args)
     except (CaptureError, OSError, UnicodeError, ValueError) as exc:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)

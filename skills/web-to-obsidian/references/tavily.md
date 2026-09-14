@@ -1,8 +1,8 @@
 # Tavily fallback / Phương án dự phòng Tavily
 
-Use Tavily only for public HTTP(S) URLs. The helper reads `TAVILY_API_KEY` from the process environment.
+Use Tavily only for public HTTP(S) URLs. The helper loads `.env` from the current working directory without overriding process variables, then reads `TAVILY_API_KEY`. Use `--env-file` for a different local file.
 
-Chỉ dùng Tavily cho URL HTTP(S) công khai. Công cụ phụ đọc `TAVILY_API_KEY` từ biến môi trường của tiến trình.
+Chỉ dùng Tavily cho URL HTTP(S) công khai. Công cụ phụ nạp `.env` trong thư mục làm việc hiện tại mà không ghi đè biến của tiến trình, rồi đọc `TAVILY_API_KEY`. Dùng `--env-file` nếu file local nằm ở nơi khác.
 
 ## Extraction policy / Chính sách trích xuất
 

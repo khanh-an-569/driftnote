@@ -1,7 +1,7 @@
 {
   "name": "web-to-obsidian",
-  "version": "0.1.0",
-  "description": "Capture browser sources into an Obsidian inbox, then distill only durable insights into linked notes.",
+  "version": "0.2.0",
+  "description": "Capture browser sources, research public GitHub repositories with Tavily, and distill durable insights into linked Obsidian notes.",
   "author": {
     "name": "khanh-an-569"
   },
@@ -19,19 +19,21 @@
   "interface": {
     "displayName": "Web to Obsidian",
     "shortDescription": "Capture web sources and distill durable notes.",
-    "longDescription": "An inbox-first second-brain workflow for ChatGPT browser capture, privacy-aware Tavily extraction, duplicate-safe Obsidian source notes, and deliberate knowledge distillation.",
+    "longDescription": "An inbox-first second-brain workflow for ChatGPT browser capture, privacy-aware Tavily extraction, public GitHub repository research, duplicate-safe Obsidian source notes, and deliberate knowledge distillation.",
     "developerName": "khanh-an-569",
     "category": "Productivity",
     "capabilities": [
       "Browser capture",
       "Local file write",
       "Web extraction",
+      "GitHub repository research",
       "Vault formatting setup"
     ],
     "defaultPrompt": [
       "Save this browser tab to my Obsidian inbox.",
       "Set up the Web Clipper template, Linter, and scoped CSS in my Obsidian vault.",
-      "Process my pending web captures into durable notes."
+      "Process my pending web captures into durable notes.",
+      "Find and compare public GitHub repositories for this task."
     ],
     "brandColor": "#7C3AED"
   }

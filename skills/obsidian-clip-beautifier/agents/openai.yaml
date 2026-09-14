@@ -1,0 +1,7 @@
+interface:
+  display_name: "Obsidian Clip Beautifier"
+  short_description: "Polish captured web notes in Obsidian"
+  default_prompt: "Use $obsidian-clip-beautifier to set up and verify a safe web-clip formatting workflow in my Obsidian vault."
+
+policy:
+  allow_implicit_invocation: true

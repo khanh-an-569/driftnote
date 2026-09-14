@@ -15,7 +15,8 @@ Use the first available vault root / Dùng vault root đầu tiên có sẵn the
 
 1. A path explicitly supplied by the user. / Đường dẫn do người dùng cung cấp rõ ràng.
 2. A path confirmed earlier in the current task. / Đường dẫn đã được xác nhận trước đó trong task hiện tại.
-3. `vault_root` from `web-to-obsidian.yaml` in the workspace or vault. / `vault_root` trong `web-to-obsidian.yaml` ở workspace hoặc vault.
+3. `OBSIDIAN_VAULT_PATH` from the process or `.env` in the workspace. / `OBSIDIAN_VAULT_PATH` từ tiến trình hoặc `.env` trong workspace.
+4. `vault_root` from `web-to-obsidian.yaml` in the workspace or vault. / `vault_root` trong `web-to-obsidian.yaml` ở workspace hoặc vault.
 
 Do not guess a personal vault path. When no destination is known, prepare a preview in the workspace and ask for the vault path before writing elsewhere.
 
@@ -69,7 +70,6 @@ Example / Ví dụ:
 
 ```powershell
 python scripts/save_capture.py `
-  --vault "D:\Notes\Second Brain" `
   --url "https://example.com/article?utm_source=newsletter" `
   --title "Example article" `
   --content-file "$env:TEMP\capture.md" `
@@ -77,9 +77,9 @@ python scripts/save_capture.py `
   --why "Relevant to my retrieval project"
 ```
 
-Enable public-web fallback explicitly with `--tavily auto`. The script reads `TAVILY_API_KEY` from the environment and never accepts the key as an argument.
+Enable public-web fallback explicitly with `--tavily auto`. The script loads `.env` from the current workspace, while existing process variables take precedence. It reads `TAVILY_API_KEY` only from the resulting environment and never accepts the key as an argument. Use `--env-file` only when the file is elsewhere.
 
-Bật rõ ràng fallback cho web công khai bằng `--tavily auto`. Script đọc `TAVILY_API_KEY` từ biến môi trường và không bao giờ nhận khóa làm đối số.
+Bật rõ ràng fallback cho web công khai bằng `--tavily auto`. Script nạp `.env` trong workspace hiện tại, còn biến đã có trong tiến trình được ưu tiên. Script chỉ đọc `TAVILY_API_KEY` từ môi trường sau khi nạp và không bao giờ nhận khóa làm đối số. Chỉ dùng `--env-file` khi file nằm ở nơi khác.
 
 ## Finish safely / Hoàn tất an toàn
 

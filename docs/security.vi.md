@@ -17,7 +17,7 @@ Tavily chỉ được phép dùng với trang HTTP(S) được chủ động xá
 - URL chứa token, thông tin xác thực, chữ ký hoặc query parameter nhạy cảm;
 - nội dung paywall chỉ hiển thị trong phiên của người dùng.
 
-`TAVILY_API_KEY` phải được lấy từ biến môi trường. Không đặt khóa trong repo, đối số dòng lệnh, prompt, note, ảnh chụp màn hình hoặc URL MCP được commit vào source control.
+`TAVILY_API_KEY` phải được lấy từ biến môi trường. Không đặt khóa trong repo, đối số dòng lệnh, prompt, note, ảnh chụp màn hình hoặc URL MCP được commit vào source control. Việc tìm GitHub chỉ giới hạn ở kết quả công khai trên `github.com`; kết quả tìm kiếm không cho phép clone, chạy, sửa, publish hoặc push bất kỳ nội dung nào.
 
 ## Ranh giới ghi local
 

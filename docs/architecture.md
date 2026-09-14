@@ -20,6 +20,14 @@ Routes selection, tab, or URL input into one source note. It applies privacy rul
 
 Fallback for public URLs whose browser capture is empty or incomplete. The policy is basic extraction first, one advanced retry, then a link-only note. Tavily Search is reserved for verification and canonical-source discovery.
 
+### `github-repo-research`
+
+Turns one to three focused questions into Tavily Search requests restricted to `github.com`. Its helper normalizes repository roots, removes non-repository GitHub pages, merges repeated hits, and emits evidence for a sourced shortlist or report. Tavily relevance guides discovery only; volatile repository metadata requires separate verification.
+
+### Tavily Search
+
+Discovers public GitHub repositories for the dedicated research skill. Basic search is the default; advanced search and raw content are opt-in when snippets are insufficient. Search never grants permission to clone, run, modify, publish, or push discovered code or local reports.
+
 ### Obsidian inbox
 
 Stores immutable evidence plus user context. `status` drives workflow; folders provide broad ownership boundaries, not a deep topic taxonomy.

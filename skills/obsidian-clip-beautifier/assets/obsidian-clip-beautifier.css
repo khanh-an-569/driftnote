@@ -1,0 +1,69 @@
+/* Scoped styling for notes with `cssclasses: web-clip`. */
+.web-clip {
+  --file-line-width: 860px;
+  --line-height-normal: 1.72;
+  --heading-spacing: 2.1rem;
+}
+
+.web-clip .markdown-preview-sizer,
+.web-clip .cm-contentContainer {
+  font-variant-ligatures: common-ligatures;
+}
+
+.web-clip h1,
+.web-clip .HyperMD-header-1 {
+  letter-spacing: -0.025em;
+  line-height: 1.18;
+}
+
+.web-clip h2,
+.web-clip .HyperMD-header-2 {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 0.35em;
+}
+
+.web-clip blockquote {
+  border-inline-start-width: 3px;
+  border-inline-start-color: var(--interactive-accent);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  padding: 0.75em 1em;
+}
+
+.web-clip .callout {
+  border-radius: var(--radius-m);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}
+
+.web-clip table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.web-clip th {
+  background: var(--background-secondary);
+  font-weight: var(--font-semibold);
+}
+
+.web-clip tbody tr:hover {
+  background: var(--background-secondary-alt);
+}
+
+.web-clip img {
+  border-radius: var(--radius-m);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 10%);
+}
+
+.web-clip a.external-link {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.web-clip :not(pre) > code {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 0.08em 0.32em;
+}

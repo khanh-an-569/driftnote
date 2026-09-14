@@ -17,7 +17,7 @@ Tavily is allowed only for intentionally public HTTP(S) pages. Do not use it for
 - URLs containing tokens, credentials, signatures, or sensitive query parameters;
 - paywalled content visible only through the user's session.
 
-`TAVILY_API_KEY` must come from the environment. Never place it in a repository, command argument, prompt, note, screenshot, or MCP URL committed to source control.
+`TAVILY_API_KEY` must come from the environment. Never place it in a repository, command argument, prompt, note, screenshot, or MCP URL committed to source control. GitHub discovery is restricted to public `github.com` results; a search result does not authorize cloning, executing, changing, publishing, or pushing anything.
 
 ## Local write boundary
 

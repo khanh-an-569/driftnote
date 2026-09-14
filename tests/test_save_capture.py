@@ -5,6 +5,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -50,6 +51,60 @@ def make_args(vault: str, **overrides: object) -> argparse.Namespace:
 
 
 class SaveCaptureTests(unittest.TestCase):
+    def test_configures_utf8_console(self) -> None:
+        class FakeStream:
+            options: dict[str, str] | None = None
+
+            def reconfigure(self, **kwargs: str) -> None:
+                self.options = kwargs
+
+        stdout = FakeStream()
+        stderr = FakeStream()
+        with mock.patch.object(save_capture.sys, "stdout", stdout), mock.patch.object(
+            save_capture.sys, "stderr", stderr
+        ):
+            save_capture._configure_utf8_console()
+
+        self.assertEqual(stdout.options, {"encoding": "utf-8", "errors": "replace"})
+        self.assertEqual(stderr.options, {"encoding": "utf-8", "errors": "replace"})
+
+    def test_dotenv_loads_values_without_overriding_process_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "TAVILY_API_KEY=from-file\n"
+                "OBSIDIAN_VAULT_PATH=E:/skill-obsidian # local vault\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                save_capture.os.environ, {"TAVILY_API_KEY": "from-process"}, clear=True
+            ):
+                loaded = save_capture.load_dotenv(workspace=Path(temp_dir))
+                self.assertEqual(loaded, env_path.resolve())
+                self.assertEqual(save_capture.os.environ["TAVILY_API_KEY"], "from-process")
+                self.assertEqual(
+                    save_capture.os.environ["OBSIDIAN_VAULT_PATH"], "E:/skill-obsidian"
+                )
+
+    def test_resolves_vault_from_cli_env_then_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            (workspace / "web-to-obsidian.yaml").write_text(
+                'vault_root: "E:/yaml-vault"\n', encoding="utf-8"
+            )
+            with mock.patch.dict(save_capture.os.environ, {}, clear=True):
+                self.assertEqual(
+                    save_capture.resolve_vault(None, workspace=workspace), "E:/yaml-vault"
+                )
+                save_capture.os.environ["OBSIDIAN_VAULT_PATH"] = "E:/env-vault"
+                self.assertEqual(
+                    save_capture.resolve_vault(None, workspace=workspace), "E:/env-vault"
+                )
+                self.assertEqual(
+                    save_capture.resolve_vault("E:/cli-vault", workspace=workspace),
+                    "E:/cli-vault",
+                )
+
     def test_canonicalize_removes_tracking_and_sorts_query(self) -> None:
         actual = save_capture.canonicalize_url(
             "HTTPS://Example.COM/story/?utm_source=test&b=2&a=1#section"
