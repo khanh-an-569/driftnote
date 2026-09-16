@@ -42,6 +42,8 @@ Các giá trị `capture_method` được phép là `selection`, `chrome`, `tavi
 
 `source_id` là 16 ký tự thập lục phân đầu tiên của giá trị băm SHA-256 từ `canonical_url`. Dùng nó để phát hiện trùng lặp; không dùng tiêu đề làm định danh.
 
+For Facebook and Instagram notes with `content_type: social`, the helper rejects an unrecognized post URL by default so a feed or profile URL cannot collapse unrelated posts into one identity. Use `--confirm-social-permalink` only after the user explicitly confirms that the supplied URL identifies the exact selected post. / Với note Facebook/Instagram loại `social`, helper mặc định từ chối URL bài đăng không nhận diện được; chỉ dùng cờ xác nhận sau khi người dùng xác nhận rõ URL trỏ đúng bài.
+
 `web-clip` is the required base CSS class. Additional classes are optional presentation hints, must follow [presentation.md](presentation.md), and are appended with repeatable `--cssclass`; they never replace `web-clip`. / `web-clip` là class nền bắt buộc; class trình bày bổ sung chỉ được thêm theo `presentation.md` và không thay thế class nền.
 
 `canonicalization_version` is `2` for notes created or migrated by the current helpers. `source_url_redacted` is `true` when credentials or sensitive query fields were removed before storage. `tavily_request_id` is conditional: record it after any successful Tavily request, even when its content is not selected; change `capture_method` only when Tavily content is used. / Version hiện tại là `2`; luôn ghi request ID khi Tavily thành công, nhưng chỉ đổi capture method khi dùng nội dung Tavily.

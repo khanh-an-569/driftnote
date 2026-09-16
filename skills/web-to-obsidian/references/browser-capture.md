@@ -17,6 +17,17 @@ Use browser-visible content instead of Tavily for authenticated, personalized, p
 
 Dùng nội dung hiển thị trong trình duyệt thay cho Tavily đối với trang cần xác thực, được cá nhân hóa, riêng tư, local hoặc có paywall. Nếu trình duyệt không thể cung cấp nội dung một cách đáng tin cậy, hãy lưu note chỉ có liên kết hoặc đề nghị người dùng xuất dữ liệu; không tuyên bố capture đã đầy đủ.
 
+## Social post permalinks / Permalink bài đăng mạng xã hội
+
+For a Facebook or Instagram selection classified as `social`, the source URL must identify the selected post rather than the surrounding feed, profile, explore, or search page. A generic URL would assign unrelated posts the same `canonical_url` and duplicate identity.
+
+- Facebook: open the post by selecting its timestamp, or use the post menu and choose **Copy link**. Recognized direct forms include post, reel, video, story/permalink, photo, watch, share, and `fb.watch` URLs.
+- Instagram: use the post menu and choose **Copy link**, or open the item until the address is a direct `/p/`, `/reel/`, `/tv/`, story, or share URL.
+- If the current URL is generic or unrecognized, stop before writing and ask the user to open the item or provide its permalink. Do not ask for credentials.
+- If a new platform URL is truly the exact item link but the helper does not recognize its shape, obtain explicit user confirmation and then pass `--confirm-social-permalink`. Never use this flag merely to bypass the warning.
+
+Với selection Facebook/Instagram, URL nguồn phải trỏ đúng bài viết. Nếu URL là feed/profile/search hoặc không rõ, hãy dừng trước khi ghi note và hướng dẫn người dùng mở bài, nhấn thời gian đăng hoặc dùng **Sao chép liên kết**. Chỉ dùng `--confirm-social-permalink` sau khi người dùng xác nhận rõ URL lạ đó chính là permalink; không yêu cầu thông tin đăng nhập.
+
 ## HTML conversion boundary / Biên chuyển đổi HTML
 
 `--html-file` converts the main/article/body region into portable Markdown. It resolves and URL-encodes relative links and image URLs, keeps emphasis and code, emits simple tables as GFM Markdown, preserves TeX math, and offsets source headings one level beneath the note H1. A Quarto title block becomes a `[!web-header]` callout with available breadcrumbs. A lightbox link whose destination conflicts with its rendered image is repaired to the image URL.

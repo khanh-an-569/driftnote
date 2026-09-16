@@ -69,6 +69,7 @@ def make_args(vault: str, **overrides: object) -> argparse.Namespace:
         "tavily": "off",
         "min_content_chars": 400,
         "timeout": 30.0,
+        "confirm_social_permalink": False,
         "refresh_existing": False,
         "dry_run": False,
     }
@@ -571,6 +572,83 @@ Actual personal note.
     def test_canonicalize_brackets_ipv6_hosts(self) -> None:
         actual = save_capture.canonicalize_url("https://[2001:db8::1]:8443/a/")
         self.assertEqual(actual, "https://[2001:db8::1]:8443/a/")
+
+    def test_social_feed_url_requires_a_permalink_before_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaises(save_capture.CaptureError) as raised:
+                save_capture.run_capture(
+                    make_args(
+                        temp_dir,
+                        url="https://www.facebook.com/",
+                        content_type="social",
+                        capture_method="selection",
+                    )
+                )
+
+        message = str(raised.exception)
+        self.assertIn("permalink", message.lower())
+        self.assertIn("Copy link", message)
+
+    def test_social_post_permalinks_are_accepted_without_confirmation(self) -> None:
+        urls = (
+            "https://www.facebook.com/example/posts/1234567890",
+            "https://www.facebook.com/story.php?story_fbid=1234567890&id=42",
+            "https://www.instagram.com/p/ABC123xyz/",
+            "https://www.instagram.com/reel/REEL123xyz/",
+        )
+
+        for url in urls:
+            with self.subTest(url=url), tempfile.TemporaryDirectory() as temp_dir:
+                result = save_capture.run_capture(
+                    make_args(
+                        temp_dir,
+                        url=url,
+                        content_type="social",
+                        capture_method="selection",
+                        dry_run=True,
+                    )
+                )
+
+                self.assertEqual(result["status"], "dry-run")
+
+    def test_confirmation_changes_an_unrecognized_social_url_to_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            unconfirmed = make_args(
+                temp_dir,
+                url="https://www.instagram.com/example-profile/",
+                content_type="social",
+                capture_method="selection",
+                dry_run=True,
+            )
+            with self.assertRaises(save_capture.CaptureError):
+                save_capture.run_capture(unconfirmed)
+
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://www.instagram.com/example-profile/",
+                    content_type="social",
+                    capture_method="selection",
+                    confirm_social_permalink=True,
+                    dry_run=True,
+                )
+            )
+
+        self.assertEqual(result["status"], "dry-run")
+
+    def test_social_permalink_confirmation_is_available_from_the_cli(self) -> None:
+        args, unknown = save_capture.build_parser().parse_known_args(
+            [
+                "--url",
+                "https://www.instagram.com/example-profile/",
+                "--content-type",
+                "social",
+                "--confirm-social-permalink",
+            ]
+        )
+
+        self.assertEqual(unknown, [])
+        self.assertTrue(args.confirm_social_permalink)
 
     def test_tavily_rejects_private_and_sensitive_urls(self) -> None:
         self.assertFalse(save_capture.is_safe_public_url_for_tavily("http://127.0.0.1/a")[0])

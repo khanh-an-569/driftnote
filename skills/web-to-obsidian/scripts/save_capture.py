@@ -998,6 +998,84 @@ def canonicalize_url(value: str) -> str:
     return sanitize_url(value).canonical_url
 
 
+def _social_platform_for_url(value: str) -> str | None:
+    parsed = urllib.parse.urlsplit(value)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if host == "instagram.com" or host.endswith(".instagram.com"):
+        return "Instagram"
+    if host in {"facebook.com", "fb.watch"} or host.endswith(".facebook.com"):
+        return "Facebook"
+    return None
+
+
+def _has_query_value(parsed: urllib.parse.SplitResult, key: str) -> bool:
+    return any(
+        item_key.lower() == key and bool(item_value.strip())
+        for item_key, item_value in urllib.parse.parse_qsl(
+            parsed.query,
+            keep_blank_values=True,
+        )
+    )
+
+
+def _looks_like_social_permalink(value: str, platform: str) -> bool:
+    parsed = urllib.parse.urlsplit(value)
+    parts = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+    lowered = [part.lower() for part in parts]
+
+    if platform == "Instagram":
+        if len(parts) >= 2 and lowered[0] in {"p", "reel", "tv"}:
+            return bool(parts[1].strip())
+        if len(parts) >= 3 and lowered[0] == "stories":
+            return bool(parts[1].strip() and parts[2].strip())
+        return (
+            len(parts) >= 3
+            and lowered[0] == "share"
+            and lowered[1] in {"p", "reel"}
+            and bool(parts[2].strip())
+        )
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if host == "fb.watch":
+        return bool(parts)
+    if lowered and lowered[0] in {"story.php", "permalink.php"}:
+        return _has_query_value(parsed, "story_fbid")
+    if lowered and lowered[0] in {"photo.php", "photo"}:
+        return _has_query_value(parsed, "fbid")
+    if lowered and lowered[0] == "watch":
+        return _has_query_value(parsed, "v")
+    for marker in ("posts", "reel", "videos"):
+        if marker in lowered:
+            marker_index = lowered.index(marker)
+            if marker_index + 1 < len(parts) and parts[marker_index + 1].strip():
+                return True
+    return (
+        len(parts) >= 3
+        and lowered[0] == "share"
+        and lowered[1] in {"p", "r", "v"}
+        and bool(parts[2].strip())
+    )
+
+
+def _validate_social_permalink(
+    source_url: str,
+    *,
+    content_type: str,
+    confirmed: bool,
+) -> None:
+    if content_type != "social" or confirmed:
+        return
+    platform = _social_platform_for_url(source_url)
+    if platform is None or _looks_like_social_permalink(source_url, platform):
+        return
+    raise CaptureError(
+        f"The {platform} URL is not a recognized post permalink. "
+        "Open the post itself or use the post menu and choose Copy link, then "
+        "provide that URL. If this unusual URL is the exact post link, ask the "
+        "user to confirm it before using --confirm-social-permalink."
+    )
+
+
 def source_id_for(canonical_url: str) -> str:
     return hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()[:16]
 
@@ -1472,6 +1550,11 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
 
     cssclasses = _normalize_cssclasses(getattr(args, "cssclass", []))
     safe_url = sanitize_url(args.url)
+    _validate_social_permalink(
+        safe_url.source_url,
+        content_type=args.content_type,
+        confirmed=bool(getattr(args, "confirm_social_permalink", False)),
+    )
     canonical_url = safe_url.canonical_url
     source_id = source_id_for(canonical_url)
     warnings: list[str] = []
@@ -1721,6 +1804,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--published", default="", help="Publication or release date")
     parser.add_argument("--platform", default="", help="Source service; defaults to hostname")
     parser.add_argument("--content-type", choices=CONTENT_TYPES, default="bookmark")
+    parser.add_argument(
+        "--confirm-social-permalink",
+        action="store_true",
+        help=(
+            "Proceed with an unrecognized Facebook or Instagram URL only after "
+            "the user explicitly confirms it is the exact post permalink"
+        ),
+    )
     parser.add_argument("--capture-method", choices=CAPTURE_METHODS, default="manual")
     parser.add_argument("--content-file", help="UTF-8 file containing captured page content; use - for stdin")
     parser.add_argument(
