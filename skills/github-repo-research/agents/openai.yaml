@@ -1,4 +1,0 @@
-interface:
-  display_name: "GitHub Repo Research"
-  short_description: "Find and compare GitHub repositories with Tavily."
-  default_prompt: "$github-repo-research Find relevant GitHub repositories and write a sourced comparison report."

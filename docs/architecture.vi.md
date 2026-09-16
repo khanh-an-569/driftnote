@@ -4,7 +4,7 @@
 
 ## Mục tiêu thiết kế
 
-Hệ thống giúp việc thu thập gần như không có ma sát nhưng không để bản tóm tắt và tag tự động biến thành kho kiến thức. Việc giữ nguyên nguồn, ghi rõ xuất xứ và cho phép đảo ngược quá trình xử lý được ưu tiên hơn kích thước đồ thị liên kết.
+Hệ thống giúp việc thu thập gần như không có ma sát, đồng thời giữ source note có thể truy ngược và chỉ cho phép thay đổi định dạng theo hướng thận trọng. Việc giữ nguyên nguồn, ghi rõ xuất xứ và ghi file không đè dữ liệu được ưu tiên hơn sự tiện lợi.
 
 ## Thành phần
 
@@ -20,25 +20,13 @@ Chuyển selection, tab hoặc URL thành một source note. Skill áp dụng qu
 
 Là phương án dự phòng cho URL công khai. Chế độ tự động chỉ chạy khi cả browser content và selection đều rỗng; yêu cầu `basic` hoặc `advanced` rõ ràng có thể bổ sung capture chưa đầy đủ. URL đã cần redact không bao giờ đi qua ranh giới này. Request ID thành công luôn được ghi dù content không được chọn; `capture_method` chỉ đổi khi dùng content Tavily. Tavily Search chỉ dành cho việc xác minh và tìm nguồn chuẩn.
 
-### `github-repo-research`
-
-Chuyển một đến ba câu hỏi tập trung thành request Tavily Search chỉ giới hạn ở `github.com`. Helper chuẩn hóa URL gốc repo, loại trang GitHub không phải repo, gộp kết quả lặp và xuất bằng chứng để tạo shortlist hoặc báo cáo có nguồn. Relevance của Tavily chỉ hỗ trợ tìm kiếm; metadata repo dễ thay đổi phải được xác minh riêng.
-
-### Tavily Search
-
-Tìm repo GitHub công khai cho skill nghiên cứu riêng. Mặc định dùng tìm kiếm `basic`; `advanced` và raw content chỉ bật khi snippet chưa đủ. Việc tìm kiếm không cho phép clone, chạy, sửa, publish hoặc push code tìm được hay báo cáo local.
-
 ### Hộp thư Obsidian
 
 Lưu bằng chứng không thay đổi cùng ngữ cảnh của người dùng. `status` điều khiển workflow; thư mục chỉ xác định phạm vi lớn, không tạo hệ phân loại chủ đề sâu.
 
 ### `obsidian-clip-beautifier`
 
-Cấu hình và kiểm tra lớp định dạng và trình bày quanh Markdown đã thu thập: cài template Web Clipper và CSS snippet có phạm vi, kiểm tra rule của Linter, chuẩn bị bản export đã đánh bóng. Skill hoạt động trên inbox, giữa bước thu thập và bước chắt lọc; nó không tự thu thập nội dung trình duyệt và không chắt lọc nguồn thành knowledge note.
-
-### `obsidian-inbox-processor`
-
-Thực hiện việc rà soát trong phạm vi giới hạn. Skill có thể giữ nguyên nguồn, đánh dấu cần xem lại hoặc tạo không, một hay nhiều atomic knowledge note. Nội dung thô không bao giờ bị xóa.
+Cấu hình và kiểm tra lớp định dạng và trình bày quanh Markdown đã thu thập: cài template Web Clipper và CSS snippet có phạm vi, kiểm tra rule của Linter, chuẩn bị bản export đã đánh bóng. Skill hoạt động trên các note đã thu thập, không tự lấy nội dung trình duyệt và không viết lại ngữ nghĩa của nguồn.
 
 ### Properties, Bases và MOC
 

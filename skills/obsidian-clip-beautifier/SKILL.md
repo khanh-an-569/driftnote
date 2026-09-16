@@ -1,6 +1,6 @@
 ---
 name: obsidian-clip-beautifier
-description: Configure, audit, and operate a safe Obsidian pipeline that captures web pages into a structured inbox, normalizes Markdown with Linter, styles web clips with scoped CSS, and optionally prepares polished exports; cấu hình, kiểm tra và vận hành pipeline làm sạch và làm đẹp web clip trong Obsidian. Use for workflow setup, template installation, formatting rules, visual styling, and export preparation. Do not use to capture a page or distill source material into knowledge notes.
+description: Configure, audit, and operate a safe Obsidian pipeline that captures web pages into a structured inbox, normalizes Markdown with Linter, styles web clips with scoped CSS, and optionally prepares polished exports; cấu hình, kiểm tra và vận hành pipeline làm sạch và làm đẹp web clip trong Obsidian. Use for workflow setup, template installation, formatting rules, visual styling, and export preparation. Do not use to capture a page or semantically rewrite source content.
 ---
 
 # Obsidian Clip Beautifier
@@ -15,9 +15,9 @@ Tạo pipeline có thể bảo trì quanh Markdown nguồn. Tách riêng việc 
 - **Audit:** inspect the confirmed vault read-only and report missing folders, assets, plugins, or unsafe Linter rules. Read [references/setup.md](references/setup.md).
 - **Operate:** explain or carry out a bounded inbox cleanup, batch lint, visual check, or export preparation. Read [references/operation.md](references/operation.md).
 
-Do not capture browser content in this skill; use `web-to-obsidian` for that. Do not distill sources into durable knowledge notes; use `obsidian-inbox-processor` for that.
+Do not capture browser content in this skill; use `web-to-obsidian` for that. Formatting must not summarize, reinterpret, or otherwise change the source's meaning.
 
-Không dùng skill này để thu thập nội dung trình duyệt; dùng `web-to-obsidian`. Không dùng nó để chắt lọc source thành knowledge note; dùng `obsidian-inbox-processor`.
+Không dùng skill này để thu thập nội dung trình duyệt; dùng `web-to-obsidian`. Việc định dạng không được tóm tắt, diễn giải lại hoặc làm thay đổi ý nghĩa của nguồn.
 
 ## Resolve and protect the vault / Xác định và bảo vệ vault
 

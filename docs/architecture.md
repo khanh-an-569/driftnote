@@ -4,7 +4,7 @@
 
 ## Design goal
 
-The system should make capture nearly frictionless without allowing automated summaries and tags to become the knowledge base. Source preservation, explicit provenance, and reversible processing take priority over graph size.
+The system should make capture nearly frictionless while keeping source notes traceable and formatting changes conservative. Source preservation, explicit provenance, and no-clobber writes take priority over convenience.
 
 ## Components
 
@@ -20,25 +20,13 @@ Routes selection, tab, or URL input into one source note. It applies privacy rul
 
 Fallback for public URLs. Automatic extraction runs only when both browser content and selection are empty; explicit `basic` or `advanced` requests can supplement an incomplete capture. URLs that required redaction never cross this boundary. A successful request ID is recorded even when its content is not selected; `capture_method` changes only when Tavily content is used. Tavily Search is reserved for verification and canonical-source discovery.
 
-### `github-repo-research`
-
-Turns one to three focused questions into Tavily Search requests restricted to `github.com`. Its helper normalizes repository roots, removes non-repository GitHub pages, merges repeated hits, and emits evidence for a sourced shortlist or report. Tavily relevance guides discovery only; volatile repository metadata requires separate verification.
-
-### Tavily Search
-
-Discovers public GitHub repositories for the dedicated research skill. Basic search is the default; advanced search and raw content are opt-in when snippets are insufficient. Search never grants permission to clone, run, modify, publish, or push discovered code or local reports.
-
 ### Obsidian inbox
 
 Stores immutable evidence plus user context. `status` drives workflow; folders provide broad ownership boundaries, not a deep topic taxonomy.
 
 ### `obsidian-clip-beautifier`
 
-Configures and audits the formatting and presentation layer around captured Markdown: installs the Web Clipper template and scoped CSS snippet, checks Linter rules, and prepares polished exports. It operates on the inbox between capture and distillation, never captures browser content itself, and never distills sources into knowledge notes.
-
-### `obsidian-inbox-processor`
-
-Performs bounded review. It may keep a source, mark it for review, or create zero or more atomic knowledge notes. It never deletes raw content.
+Configures and audits the formatting and presentation layer around captured Markdown: installs the Web Clipper template and scoped CSS snippet, checks Linter rules, and prepares polished exports. It operates on captured notes, never captures browser content itself, and never performs semantic rewriting.
 
 ### Properties, Bases, and MOCs
 

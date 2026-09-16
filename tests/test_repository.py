@@ -18,12 +18,16 @@ class RepositoryTests(unittest.TestCase):
         self.assertRegex(manifest["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(manifest["skills"], "./skills/")
 
-        for skill_name in (
+        expected_skill_names = (
             "web-to-obsidian",
-            "obsidian-inbox-processor",
-            "github-repo-research",
             "obsidian-clip-beautifier",
-        ):
+        )
+        actual_skill_names = tuple(
+            sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
+        )
+        self.assertEqual(actual_skill_names, tuple(sorted(expected_skill_names)))
+
+        for skill_name in expected_skill_names:
             skill_text = (ROOT / "skills" / skill_name / "SKILL.md").read_text(encoding="utf-8")
             self.assertTrue(skill_text.startswith("---\n"))
             frontmatter = skill_text.split("---", 2)[1]
@@ -54,8 +58,6 @@ class RepositoryTests(unittest.TestCase):
             ROOT / "web-to-obsidian.example.yaml",
             ROOT / "vault-starter" / "Web Inbox.base",
             ROOT / "skills" / "web-to-obsidian" / "agents" / "openai.yaml",
-            ROOT / "skills" / "obsidian-inbox-processor" / "agents" / "openai.yaml",
-            ROOT / "skills" / "github-repo-research" / "agents" / "openai.yaml",
             ROOT / "skills" / "obsidian-clip-beautifier" / "agents" / "openai.yaml",
         ]
         parsed = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in paths]

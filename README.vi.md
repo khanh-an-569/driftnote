@@ -2,17 +2,16 @@
 
 [![CI](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml)
 
-Quy trình second brain theo hướng inbox-first: lấy nội dung trình duyệt bằng ChatGPT, làm sạch và trình bày Markdown trong Obsidian, nghiên cứu repo GitHub công khai bằng Tavily, rồi biến những ý tưởng bền vững thành knowledge note có liên kết.
+Quy trình có thể truy ngược từ trình duyệt tới Obsidian: lấy nội dung trình duyệt bằng ChatGPT rồi làm sạch và trình bày Markdown trong Obsidian.
 
 [English](README.md) | **Tiếng Việt**
 
 ## Vì sao nên dùng workflow này
 
-Việc thu thập và việc suy nghĩ là hai công việc khác nhau. Repo này tách chúng thành hai giai đoạn:
+Việc thu thập và trình bày là hai công việc khác nhau. Repo này tách chúng thành hai giai đoạn:
 
 1. `web-to-obsidian` lưu nhanh một source note có thể truy ngược.
 2. `obsidian-clip-beautifier` cấu hình template capture sạch, định dạng Markdown thận trọng và CSS chỉ áp dụng cho web clip.
-3. `obsidian-inbox-processor` xử lý các capture sau và chỉ tạo knowledge note khi thật sự có một ý tưởng đáng giữ.
 
 Nội dung nguồn thô được giữ nguyên. URL trùng được bỏ qua. Tavily chỉ là fallback cho web công khai, không phải cách vượt đăng nhập hoặc paywall.
 
@@ -24,16 +23,10 @@ web-to-obsidian -------- URL công khai, capture yếu --------> Tavily Extract
         |                                                     (basic, rồi advanced một lần)
         v
 00 Inbox/Web
+        ^
         |
-        v
 obsidian-clip-beautifier
-        |
-        v
-obsidian-inbox-processor
-        |
-        +--> giữ làm nguồn
-        +--> cần xem lại
-        `--> atomic knowledge note + wikilink có ý nghĩa
+(cấu hình template, Linter và CSS có phạm vi)
 ```
 
 ## Thành phần của repo
@@ -43,8 +36,6 @@ obsidian-inbox-processor
 skills/
   web-to-obsidian/
   obsidian-clip-beautifier/
-  obsidian-inbox-processor/
-  github-repo-research/
 vault-starter/
   Home.md
   Web Inbox.base
@@ -59,7 +50,7 @@ Repo được đóng gói như một Codex plugin; mỗi skill cũng có thể �
 - ChatGPT desktop có Browser Extension đã cấu hình cho Chrome, Edge, Brave, Opera hoặc Vivaldi.
 - Một vault Obsidian local.
 - Python 3.10 trở lên cho công cụ thu thập có chống trùng lặp.
-- Không bắt buộc: Tavily API key để trích xuất trang công khai và tìm kiếm repo GitHub công khai.
+- Không bắt buộc: Tavily API key để trích xuất trang công khai.
 
 ## Cài skill thủ công
 
@@ -68,8 +59,6 @@ Từ PowerShell tại repo này:
 ```powershell
 Copy-Item -Recurse -Force .\skills\web-to-obsidian "$env:USERPROFILE\.codex\skills\web-to-obsidian"
 Copy-Item -Recurse -Force .\skills\obsidian-clip-beautifier "$env:USERPROFILE\.codex\skills\obsidian-clip-beautifier"
-Copy-Item -Recurse -Force .\skills\obsidian-inbox-processor "$env:USERPROFILE\.codex\skills\obsidian-inbox-processor"
-Copy-Item -Recurse -Force .\skills\github-repo-research "$env:USERPROFILE\.codex\skills\github-repo-research"
 ```
 
 Sau khi cài đặt, hãy mở một task ChatGPT Work local hoặc Codex mới để hệ thống nhận diện skill.
@@ -109,33 +98,6 @@ Thiết lập lớp làm sạch và trình bày:
 $obsidian-clip-beautifier
 Thiết lập và xác minh workflow Web Clipper, Linter và CSS có phạm vi trong vault Obsidian đã xác nhận của tôi.
 ```
-
-Sau đó, xử lý một batch có giới hạn:
-
-```text
-$obsidian-inbox-processor
-Xử lý tối đa 10 web capture đang chờ. Giữ nguyên mọi nguồn và chỉ tạo knowledge note cho ý tưởng bền vững.
-```
-
-## Nghiên cứu repo GitHub công khai
-
-Dùng skill riêng để tìm ví dụ triển khai, so sánh lựa chọn, tóm tắt ý chính hoặc viết báo cáo có nguồn:
-
-```text
-$github-repo-research
-Tìm các repo GitHub công khai để đánh giá hệ thống RAG bằng Python. So sánh phạm vi được tài liệu hóa, cách tích hợp và giới hạn, rồi đề xuất shortlist kèm nguồn trực tiếp.
-```
-
-Helper gọi Tavily Search với bộ lọc nghiêm ngặt chỉ cho `github.com`, chuẩn hóa URL repo và gộp kết quả trùng từ tối đa ba truy vấn tập trung:
-
-```powershell
-python .\skills\github-repo-research\scripts\search_github_repos.py `
-  --query "open source RAG evaluation framework Python GitHub repository" `
-  --max-results 8 `
-  --format markdown
-```
-
-Mặc định bằng chứng tìm kiếm được trả ra stdout. Thêm `--output ".\local-repo-report.md"` để giữ artifact local; publish, commit hoặc push vẫn là hành động riêng.
 
 ## Dùng trực tiếp công cụ phụ
 
@@ -177,8 +139,6 @@ Xem [Kiến trúc](docs/architecture.vi.md) và [Bảo mật và quyền riêng 
 python -m unittest discover -s tests -v
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-clip-beautifier
-python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-inbox-processor
-python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\github-repo-research
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
 

@@ -4,11 +4,11 @@ Use this reference for daily use, bounded cleanup, batch linting, visual checks,
 
 ## Daily lifecycle
 
-1. Web Clipper creates a source note in `00 Inbox/Web` with `status: inbox`.
+1. `web-to-obsidian` creates a source note in `00 Inbox/Web` with `status: inbox`.
 2. Opening and saving the note, or switching away from it, lets Linter normalize the Markdown when the matching settings are enabled.
 3. Review the source, preserve the original URL and raw captured content, and add personal context separately.
-4. Use `obsidian-inbox-processor` if the user wants durable knowledge notes or status transitions based on the source.
-5. Keep the source in place and update its status through `obsidian-inbox-processor`; move it only when the user explicitly requests a confirmed destination.
+4. Leave `status: inbox` unchanged after formatting; a status change is a separate content-review decision.
+5. Keep the source in place and move it only when the user explicitly requests a confirmed destination.
 
 Formatting is not semantic processing. Do not summarize, delete source passages, invent metadata, or mark a note `processed` merely because Linter ran.
 
