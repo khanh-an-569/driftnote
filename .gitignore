@@ -1,11 +1,55 @@
+# Local configuration and secrets
 .env
+.env.*
+!.env.example
 web-to-obsidian.yaml
+
+# Local skill installation backups and capture workspaces
+.skill-backups/
+.tmp-rich-capture/
+
+# Python bytecode and virtual environments
 __pycache__/
 *.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Python tooling and test output
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.pyre/
+.ruff_cache/
+.tox/
+.nox/
+
+# Packaging output
 dist/
 build/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# Editors and local workspace state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Temporary and backup files
 *.tmp
+*.bak
+*.orig
+
+# Operating-system metadata
 .DS_Store
 Thumbs.db
+Desktop.ini
