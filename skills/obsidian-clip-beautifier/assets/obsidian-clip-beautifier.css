@@ -35,17 +35,63 @@
   box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
 }
 
+.web-clip .callout[data-callout="web-header"] {
+  --callout-color: 74, 118, 168;
+  --callout-icon: lucide-book-open;
+  border-width: 0;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--interactive-accent) 16%, var(--background-primary)),
+    var(--background-secondary)
+  );
+  padding: 1rem 1.15rem;
+}
+
+.web-clip .callout[data-callout="web-header"] .callout-title {
+  font-size: 1.45em;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.web-clip .callout[data-callout="web-header"] .callout-content {
+  color: var(--text-muted);
+  margin-top: 0.45rem;
+}
+
+.web-clip .callout[data-callout="toc"] {
+  --callout-color: 92, 124, 153;
+  --callout-icon: lucide-list-tree;
+}
+
+.web-clip .callout[data-callout="toc"] .callout-content {
+  font-size: 0.94em;
+}
+
+.web-clip .callout[data-callout="toc"] ul {
+  margin-block: 0.35em;
+}
+
 .web-clip table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: separate;
   border-spacing: 0;
-  overflow: hidden;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
+  -webkit-overflow-scrolling: touch;
 }
 
 .web-clip th {
   background: var(--background-secondary);
   font-weight: var(--font-semibold);
+}
+
+.web-clip th,
+.web-clip td {
+  min-width: 7rem;
+  vertical-align: top;
+  white-space: normal;
 }
 
 .web-clip tbody tr:hover {

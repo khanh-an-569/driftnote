@@ -56,6 +56,24 @@ class ObsidianClipBeautifierTests(unittest.TestCase):
             repeated = MODULE.prepare(vault, apply=True)
             self.assertTrue(all(item["status"] == "unchanged" for item in repeated["files"]))
 
+    def test_css_supports_quarto_header_callouts_and_wide_tables(self) -> None:
+        css = (SKILL_ROOT / "assets" / "obsidian-clip-beautifier.css").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('.callout[data-callout="web-header"]', css)
+        table_rule = css.split(".web-clip table {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-x: auto", table_rule)
+        self.assertIn("display: block", table_rule)
+        self.assertNotIn("overflow: hidden", table_rule)
+
+    def test_css_styles_the_generated_toc_callout(self) -> None:
+        css = (SKILL_ROOT / "assets" / "obsidian-clip-beautifier.css").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('.callout[data-callout="toc"]', css)
+
     def test_apply_never_overwrites_a_conflicting_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             vault = self.make_vault(Path(temporary))

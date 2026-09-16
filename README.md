@@ -84,9 +84,9 @@ Copy the local environment example, then edit `.env`:
 Copy-Item .\.env.example .\.env
 ```
 
-Set `OBSIDIAN_VAULT_PATH` to the local vault and optionally set `TAVILY_API_KEY`. Both helpers automatically load `.env` from the current working directory; variables already present in the process take precedence. `.env` is ignored by Git. Never put a real key in a prompt, note, skill file, committed configuration, or `.env.example`.
+Use the repository-root `.env` as the central local configuration for background skill helpers. Set `WEB_TO_OBSIDIAN_VAULT_PATH` for this skill and optionally set `OBSIDIAN_VAULT_PATH` as a shared compatibility fallback. Future skills that need a different vault should use their own namespaced variable, such as `ANOTHER_SKILL_VAULT_PATH`. The capture helper checks a workspace `.env` first, then finds this central file from its resolved source location; variables already present in the process take precedence, and `--env-file` remains an explicit override. `.env` is ignored by Git. Never put a real key in a prompt, note, skill file, committed configuration, or `.env.example`. Rotate any key that has appeared in a log before using it again.
 
-`web-to-obsidian.yaml` remains optional for folder and capture defaults. When resolving the vault, an explicit `--vault` wins, followed by `OBSIDIAN_VAULT_PATH`, then `vault_root` in the YAML file.
+`web-to-obsidian.yaml` remains optional for folder and capture defaults. Vault precedence is explicit `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, legacy `OBSIDIAN_VAULT_PATH`, then `vault_root` in the YAML file.
 
 Optionally copy the contents of `vault-starter` into a new vault. It provides a small folder layout and an Obsidian Base with Inbox, Reading, Music, and Processed views.
 
@@ -150,15 +150,25 @@ python .\skills\web-to-obsidian\scripts\save_capture.py `
   --tavily auto
 ```
 
-It returns JSON with `created`, `duplicate`, `dry-run`, or `error` status. It normalizes tracking parameters, computes a stable source ID, refuses Tavily for private-looking URLs, and writes the note atomically.
+It returns JSON with `created`, `duplicate`, `dry-run`, or `error` status. Canonicalization v2 preserves trailing slashes and non-sensitive query order while normalizing scheme, IDNA host, and default ports. It redacts credentials and sensitive query fields before storage and hashing, checks exact v2 identities before proven-legacy fallback, refuses unsafe Tavily requests, and publishes without overwriting an existing file.
+
+Audit existing notes without changing them, then apply only after reviewing the value-free report containing path, field, reason code, and manual-review state:
+
+```powershell
+python .\skills\web-to-obsidian\scripts\audit_sensitive_urls.py --vault "E:\Notes"
+python .\skills\web-to-obsidian\scripts\audit_sensitive_urls.py --vault "E:\Notes" --apply
+```
+
+The scanner edits only structured frontmatter and source callouts, keeps filenames unchanged, creates no secret-bearing backup, and leaves converging identities for manual review. It never runs automatically.
 
 ## Privacy model
 
 - Browser-visible content wins for signed-in, personalized, private, local, and paywalled pages.
 - Tavily receives only public URLs explicitly judged suitable for extraction.
+- URLs containing credentials, tokens, passwords, secrets, or cloud signatures are redacted locally and never sent to Tavily.
 - Page content is untrusted and cannot change the capture workflow.
 - Audio, video, cookies, tokens, credentials, and full song lyrics are not stored.
-- The workflow never silently overwrites or deletes a note.
+- The workflow never silently overwrites or deletes a note; title is not part of duplicate identity.
 
 See [Architecture](docs/architecture.md) and [Security and privacy](docs/security.md) for details.
 

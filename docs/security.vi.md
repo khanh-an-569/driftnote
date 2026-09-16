@@ -19,9 +19,13 @@ Tavily chỉ được phép dùng với trang HTTP(S) được chủ động xá
 
 `TAVILY_API_KEY` phải được lấy từ biến môi trường. Không đặt khóa trong repo, đối số dòng lệnh, prompt, note, ảnh chụp màn hình hoặc URL MCP được commit vào source control. Việc tìm GitHub chỉ giới hạn ở kết quả công khai trên `github.com`; kết quả tìm kiếm không cho phép clone, chạy, sửa, publish hoặc push bất kỳ nội dung nào.
 
+Helper capture loại bỏ user information trong URL và query nhạy cảm (gồm tên chứa token/secret/password và chữ ký `x-amz-`/`x-goog-`) trước khi lưu hoặc băm. URL đã cần redact không bao giờ được gửi Tavily. Bộ nạp `.env` chỉ nhận `TAVILY_API_KEY`, `WEB_TO_OBSIDIAN_VAULT_PATH` và biến cũ `OBSIDIAN_VAULT_PATH`; không log giá trị.
+
 ## Ranh giới ghi local
 
-Đích đến phải được phân giải bên trong vault đã xác nhận. Công cụ thu thập từ chối đường dẫn thư mục tương đối đi ra ngoài vault. Note hiện có không bị ghi đè chỉ vì trùng tên file; phát hiện trùng lặp ưu tiên định danh nguồn.
+Đích đến phải được phân giải bên trong vault đã xác nhận. Helper từ chối đường dẫn đi ra ngoài vault, publish bằng hard-link nguyên tử no-clobber và fail closed nếu filesystem không hỗ trợ. Duplicate detection kiểm tra exact canonical URL/source ID v2 trước khi fallback cho note được chứng minh là legacy; title chỉ ảnh hưởng filename chống collision. Lock theo source ID timeout sau 10 giây và không bao giờ tự bị xóa hoặc chiếm; stale-lock recovery là thao tác thủ công có chủ đích.
+
+`audit_sensitive_urls.py` mặc định chỉ đọc và audit độc lập `source_url`, `canonical_url` cùng mọi source callout được nhận diện. `--apply` chỉ sửa khi mọi URL hợp lệ hội tụ và file chưa đổi, không rename note hoặc tạo backup. URL invalid, identity mismatch/collision và concurrent edit được giữ nguyên để review thủ công. JSON chỉ chứa path, cặp field/reason code và trạng thái manual review, không chứa giá trị URL.
 
 ## Bản quyền và nội dung đa phương tiện
 

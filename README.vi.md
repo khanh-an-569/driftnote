@@ -82,9 +82,9 @@ Sao chép file môi trường mẫu rồi chỉnh `.env`:
 Copy-Item .\.env.example .\.env
 ```
 
-Đặt `OBSIDIAN_VAULT_PATH` thành đường dẫn vault local và tùy chọn điền `TAVILY_API_KEY`. Hai helper tự nạp `.env` trong thư mục làm việc hiện tại; biến đã có trong tiến trình luôn được ưu tiên. `.env` đã được Git bỏ qua. Không đặt khóa thật trong prompt, note, file skill, cấu hình được commit hoặc `.env.example`.
+Dùng `.env` ở thư mục gốc repository làm cấu hình local trung tâm cho các helper chạy nền. Đặt `WEB_TO_OBSIDIAN_VAULT_PATH` cho skill này và chỉ dùng `OBSIDIAN_VAULT_PATH` như fallback tương thích dùng chung khi cần. Skill tương lai dùng vault khác nên có biến được namespace riêng, ví dụ `ANOTHER_SKILL_VAULT_PATH`. Helper capture kiểm tra `.env` của workspace trước, sau đó tự tìm file trung tâm này từ vị trí thật của mã nguồn; biến đã có trong tiến trình luôn được ưu tiên và `--env-file` vẫn là override rõ ràng. `.env` đã được Git bỏ qua. Không đặt khóa thật trong prompt, note, file skill, cấu hình được commit hoặc `.env.example`. Phải rotate mọi khóa từng xuất hiện trong log trước khi dùng lại.
 
-`web-to-obsidian.yaml` vẫn là cấu hình tùy chọn cho thư mục và mặc định capture. Thứ tự xác định vault là `--vault`, `OBSIDIAN_VAULT_PATH`, rồi `vault_root` trong YAML.
+`web-to-obsidian.yaml` vẫn là cấu hình tùy chọn cho thư mục và mặc định capture. Thứ tự xác định vault là `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, biến cũ `OBSIDIAN_VAULT_PATH`, rồi `vault_root` trong YAML.
 
 Bạn có thể sao chép nội dung thư mục `vault-starter` vào vault mới. Thư mục này cung cấp cấu trúc tối giản và một Obsidian Base với các view Inbox, Reading, Music và Processed.
 
@@ -149,15 +149,25 @@ python .\skills\web-to-obsidian\scripts\save_capture.py `
   --tavily auto
 ```
 
-Công cụ trả JSON với trạng thái `created`, `duplicate`, `dry-run` hoặc `error`. Nó loại bỏ tham số theo dõi khi chuẩn hóa URL, tính source ID ổn định, từ chối Tavily cho URL có vẻ riêng tư và ghi note theo cách nguyên tử.
+Công cụ trả JSON với trạng thái `created`, `duplicate`, `dry-run` hoặc `error`. Canonicalization v2 giữ trailing slash và thứ tự query không nhạy cảm, đồng thời chuẩn hóa scheme, IDNA host và default port. Helper redact credential/query nhạy cảm trước khi lưu và băm, kiểm tra exact v2 trước khi fallback cho note được chứng minh là legacy, từ chối Tavily không an toàn và publish mà không ghi đè file hiện có.
+
+Kiểm tra note cũ ở chế độ không sửa, rồi chỉ apply sau khi xem báo cáo value-free gồm path, field, reason code và trạng thái manual review:
+
+```powershell
+python .\skills\web-to-obsidian\scripts\audit_sensitive_urls.py --vault "E:\Notes"
+python .\skills\web-to-obsidian\scripts\audit_sensitive_urls.py --vault "E:\Notes" --apply
+```
+
+Scanner chỉ sửa frontmatter và source callout có cấu trúc, giữ nguyên filename, không tạo backup chứa secret và để các identity hội tụ cho người dùng xử lý thủ công. Scanner không bao giờ tự chạy.
 
 ## Mô hình quyền riêng tư
 
 - Nội dung hiển thị trong trình duyệt được ưu tiên cho trang đã đăng nhập, được cá nhân hóa, riêng tư, local hoặc có paywall.
 - Chỉ URL công khai đã được đánh giá phù hợp mới được gửi tới Tavily.
+- URL chứa credential, token, password, secret hoặc cloud signature được redact tại máy và không bao giờ gửi Tavily.
 - Nội dung trang là dữ liệu không đáng tin cậy và không thể thay đổi workflow thu thập.
 - Không lưu audio, video, cookie, token, thông tin xác thực hoặc toàn bộ lời bài hát.
-- Workflow không âm thầm ghi đè hoặc xóa note.
+- Workflow không âm thầm ghi đè hoặc xóa note; title không thuộc duplicate identity.
 
 Xem [Kiến trúc](docs/architecture.vi.md) và [Bảo mật và quyền riêng tư](docs/security.vi.md) để biết chi tiết.
 

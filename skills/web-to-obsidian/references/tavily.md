@@ -1,15 +1,16 @@
 # Tavily fallback / Phương án dự phòng Tavily
 
-Use Tavily only for public HTTP(S) URLs. The helper loads `.env` from the current working directory without overriding process variables, then reads `TAVILY_API_KEY`. Use `--env-file` for a different local file.
+Use Tavily only for public HTTP(S) URLs. The helper accepts `TAVILY_API_KEY`, `WEB_TO_OBSIDIAN_VAULT_PATH`, and legacy `OBSIDIAN_VAULT_PATH` from `.env`, without overriding process variables. Without `--env-file`, it loads the current workspace `.env` first and then the central `.env` above the source `skills` directory. Use `--env-file` for an explicit override.
 
-Chỉ dùng Tavily cho URL HTTP(S) công khai. Công cụ phụ nạp `.env` trong thư mục làm việc hiện tại mà không ghi đè biến của tiến trình, rồi đọc `TAVILY_API_KEY`. Dùng `--env-file` nếu file local nằm ở nơi khác.
+Chỉ dùng Tavily cho URL HTTP(S) công khai. Helper nhận `TAVILY_API_KEY`, `WEB_TO_OBSIDIAN_VAULT_PATH` và biến cũ `OBSIDIAN_VAULT_PATH` từ `.env`, không ghi đè biến tiến trình. Khi không có `--env-file`, helper nạp `.env` của workspace hiện tại trước rồi đến `.env` trung tâm nằm phía trên thư mục `skills` của mã nguồn. Dùng `--env-file` khi cần override rõ ràng.
 
 ## Extraction policy / Chính sách trích xuất
 
 - Start with `basic` and `format=markdown`. / Bắt đầu bằng `basic` và `format=markdown`.
+- `--tavily auto` runs only when both source content and selection are empty; `basic` or `advanced` is an explicit request to supplement short content. / `auto` chỉ chạy khi content và selection đều rỗng; `basic`/`advanced` là yêu cầu bổ sung rõ ràng.
 - Retry `advanced` at most once when basic extraction fails, returns too little content, or misses important tables or embedded material. / Thử lại `advanced` tối đa một lần khi `basic` thất bại, trả quá ít nội dung hoặc bỏ sót bảng hay nội dung nhúng quan trọng.
 - A URL in `failed_results` is a failed extraction even when the HTTP request itself succeeded. / URL xuất hiện trong `failed_results` được xem là trích xuất thất bại dù HTTP request thành công.
-- Preserve the original URL and record the final extraction method. / Giữ URL gốc và ghi lại phương thức trích xuất cuối cùng.
+- Redact credentials and sensitive query fields before storage. Never send a URL that required redaction to Tavily. / Redact thành phần nhạy cảm trước khi lưu; URL đã cần redact không bao giờ được gửi Tavily.
 - Fall back to a link-only note when both attempts fail. / Tạo note chỉ có liên kết khi cả hai lần đều thất bại.
 
 Do not send Tavily / Không gửi tới Tavily:

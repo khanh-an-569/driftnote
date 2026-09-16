@@ -1,6 +1,6 @@
 {
   "name": "web-to-obsidian",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Capture browser sources, research public GitHub repositories with Tavily, and distill durable insights into linked Obsidian notes.",
   "author": {
     "name": "khanh-an-569"

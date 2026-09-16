@@ -71,14 +71,22 @@ class RepositoryTests(unittest.TestCase):
             re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
         ]
         ignored_parts = {".git", "__pycache__"}
+        ignored_names = {".env", "web-to-obsidian.yaml"}
         for path in ROOT.rglob("*"):
-            if not path.is_file() or any(part in ignored_parts for part in path.parts):
+            if (
+                not path.is_file()
+                or path.name in ignored_names
+                or any(part in ignored_parts for part in path.parts)
+            ):
                 continue
             if path.suffix.lower() in {".pyc", ".png", ".jpg", ".jpeg", ".gif"}:
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
             for pattern in secret_patterns:
-                self.assertIsNone(pattern.search(text), f"Secret-like value found in {path}")
+                self.assertFalse(
+                    bool(pattern.search(text)),
+                    f"Secret-like value found in tracked source: {path}",
+                )
 
 
 if __name__ == "__main__":

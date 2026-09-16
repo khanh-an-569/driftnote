@@ -49,6 +49,8 @@ python scripts/prepare_clip_pipeline.py --vault "D:\path\to\vault" --apply
 
 The helper creates the inbox/archive folders, copies the Web Clipper template into `00 System/Web Clipper`, and installs a CSS snippet under `.obsidian/snippets`. It never overwrites a differing file. Report `created`, `unchanged`, and `conflict` items exactly.
 
+The base snippet styles the generated `[!web-header]` source banner and collapsed `[!toc]` document outline, and makes wide Markdown tables horizontally scrollable without clipping cells. Foldable learning objectives, checkpoints, quizzes, examples, and warnings use native Obsidian callouts produced by `web-to-obsidian`; the snippet does not require an extra community plugin for those interactions.
+
 ## Verify the outcome / Xác minh kết quả
 
 After setup, verify all of the following:

@@ -77,6 +77,8 @@ In Obsidian, open **Settings -> Appearance -> CSS snippets**, reload snippets, a
 
 The Web Clipper template assigns `cssclasses: web-clip`. The supplied CSS is scoped to that class so ordinary notes should remain unchanged. Verify both Reading view and Live Preview because Obsidian renders them differently.
 
+For a rich Quarto capture, also verify that `[!web-header]` renders as the source banner, `[!toc]` renders as the collapsed document outline with working heading links, native callouts retain their initial open/closed state, and a table wider than the note pane scrolls horizontally instead of being clipped. These behaviors belong to the scoped base snippet and do not require theme-specific helper classes.
+
 ## Audit checklist
 
 Read only unless the user asked for setup or repair:

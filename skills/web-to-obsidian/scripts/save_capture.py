@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html as html_lib
 import ipaddress
 import json
 import os
 import re
+import secrets
 import sys
 import tempfile
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from contextlib import contextmanager
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
 
@@ -54,7 +59,17 @@ SENSITIVE_QUERY_PARTS = {
     "signature",
     "token",
 }
-SKIP_DIRECTORIES = {".git", ".obsidian", ".trash", "node_modules", "__pycache__"}
+IDENTITY_LOCK_DIRECTORY = ".web-to-obsidian-locks"
+IDENTITY_LOCK_TIMEOUT_SECONDS = 10.0
+IDENTITY_LOCK_POLL_SECONDS = 0.05
+SKIP_DIRECTORIES = {
+    ".git",
+    ".obsidian",
+    ".trash",
+    IDENTITY_LOCK_DIRECTORY,
+    "node_modules",
+    "__pycache__",
+}
 WINDOWS_RESERVED_NAMES = {
     "CON",
     "PRN",
@@ -66,6 +81,18 @@ WINDOWS_RESERVED_NAMES = {
 CONTENT_TYPES = ("article", "news", "bookmark", "music", "video", "podcast", "social", "other")
 CAPTURE_METHODS = ("selection", "chrome", "tavily-basic", "tavily-advanced", "hybrid", "manual")
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CSS_CLASS_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+SKILL_VAULT_ENV_NAME = "WEB_TO_OBSIDIAN_VAULT_PATH"
+LEGACY_VAULT_ENV_NAME = "OBSIDIAN_VAULT_PATH"
+ALLOWED_DOTENV_NAMES = {
+    SKILL_VAULT_ENV_NAME,
+    LEGACY_VAULT_ENV_NAME,
+    "TAVILY_API_KEY",
+}
+SENSITIVE_QUERY_PREFIXES = ("x-amz-", "x-goog-")
+SOURCE_CONTENT_START = "<!-- web-to-obsidian:source-content:start -->"
+SOURCE_CONTENT_END = "<!-- web-to-obsidian:source-content:end -->"
+PERSONAL_NOTES_START = "<!-- web-to-obsidian:personal-notes:start -->"
 
 
 class CaptureError(RuntimeError):
@@ -79,6 +106,696 @@ class TavilyResult:
     request_id: str | None
 
 
+@dataclass(frozen=True)
+class SafeUrl:
+    source_url: str
+    canonical_url: str
+    legacy_canonical_url: str
+    redacted: bool
+    reason_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class NoteIdentity:
+    path: Path
+    source_id: str
+    source_url: str
+    canonical_url: str
+    canonicalization_version: str
+
+
+@dataclass
+class HtmlNode:
+    tag: str
+    attrs: dict[str, str]
+    children: list[object]
+
+
+class _HtmlTreeParser(HTMLParser):
+    """Small dependency-free HTML tree builder for browser-authorized DOM."""
+
+    _VOID_TAGS = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root = HtmlNode("document", {}, [])
+        self.stack = [self.root]
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        node = HtmlNode(
+            tag.lower(),
+            {name.lower(): value or "" for name, value in attrs},
+            [],
+        )
+        self.stack[-1].children.append(node)
+        if node.tag not in self._VOID_TAGS:
+            self.stack.append(node)
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self.handle_starttag(tag, attrs)
+        if self.stack[-1].tag == tag.lower():
+            self.stack.pop()
+
+    def handle_endtag(self, tag: str) -> None:
+        wanted = tag.lower()
+        for index in range(len(self.stack) - 1, 0, -1):
+            if self.stack[index].tag == wanted:
+                del self.stack[index:]
+                return
+
+    def handle_data(self, data: str) -> None:
+        self.stack[-1].children.append(data)
+
+
+class _HtmlMarkdownRenderer:
+    _CALLOUT_TYPES = {
+        "chapter-connection": "info",
+        "checkpoint": "success",
+        "definition": "quote",
+        "example": "example",
+        "learning-objectives": "abstract",
+        "lighthouse": "tip",
+        "notebook": "example",
+        "perspective": "info",
+        "quiz-answer": "example",
+        "quiz-question": "question",
+        "takeaways": "tip",
+        "war-story": "warning",
+    }
+    _IGNORED_TAGS = {
+        "base",
+        "button",
+        "canvas",
+        "form",
+        "iframe",
+        "input",
+        "link",
+        "meta",
+        "nav",
+        "noscript",
+        "script",
+        "style",
+        "svg",
+        "template",
+    }
+    _IGNORED_IDS = {
+        "quarto-back-to-top",
+    }
+    _SAFE_FALLBACK_TAGS = {
+        "a",
+        "b",
+        "br",
+        "caption",
+        "code",
+        "col",
+        "colgroup",
+        "em",
+        "i",
+        "img",
+        "p",
+        "span",
+        "strong",
+        "sub",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+    }
+    _SAFE_FALLBACK_ATTRIBUTES = {
+        "a": {"href", "title"},
+        "col": {"span"},
+        "img": {"alt", "height", "src", "title", "width"},
+        "td": {"colspan", "headers", "rowspan"},
+        "th": {"colspan", "headers", "rowspan", "scope"},
+    }
+
+    def __init__(self, base_url: str, *, heading_offset: int = 0) -> None:
+        self.base_url = base_url
+        self.heading_offset = max(0, heading_offset)
+
+    def render(self, node: HtmlNode | str) -> str:
+        if isinstance(node, str):
+            value = re.sub(r"\s+", " ", node)
+            return re.sub(r"(?<!\\)\$(?=\d)", r"\\$", value)
+        if node.attrs.get("id") in self._IGNORED_IDS:
+            return ""
+        if node.tag == "header" and (
+            node.attrs.get("id") == "title-block-header"
+            or "quarto-title-block" in node.attrs.get("class", "").split()
+        ):
+            return self._render_title_block(node)
+        if node.tag in self._IGNORED_TAGS:
+            return ""
+
+        math = self._render_math(node)
+        if math is not None:
+            return math
+
+        tag = node.tag
+        if tag in {"document", "html", "body", "main", "article", "section"}:
+            return self._block_children(node)
+        if tag in {"div", "header", "footer", "aside", "nav"}:
+            return self._block_children(node)
+        if re.fullmatch(r"h[1-6]", tag):
+            level = min(6, int(tag[1]) + self.heading_offset)
+            return f"{'#' * level} {self._inline_children(node).strip()}\n\n"
+        if tag == "p":
+            return f"{self._inline_children(node).strip()}\n\n"
+        if tag == "br":
+            return "  \n"
+        if tag == "hr":
+            return "\n---\n\n"
+        if tag in {"strong", "b"}:
+            value = self._inline_children(node).strip()
+            return f"**{value}**" if value else ""
+        if tag in {"em", "i"}:
+            value = self._inline_children(node).strip()
+            return f"*{value}*" if value else ""
+        if tag in {"del", "s", "strike"}:
+            value = self._inline_children(node).strip()
+            return f"~~{value}~~" if value else ""
+        if tag == "mark":
+            value = self._inline_children(node).strip()
+            return f"=={value}==" if value else ""
+        if tag == "a":
+            label = self._inline_children(node).strip()
+            target = self._resolve_url(node.attrs.get("href", ""), image=False)
+            if not target:
+                return label
+            image_children = [
+                child
+                for child in node.children
+                if isinstance(child, HtmlNode) and child.tag == "img"
+            ]
+            if len(image_children) == 1:
+                image_target = self._image_target(image_children[0])
+                target_name = Path(urllib.parse.urlsplit(target).path).name
+                image_name = Path(urllib.parse.urlsplit(image_target).path).name
+                classes = set(node.attrs.get("class", "").split())
+                if image_target and (
+                    "lightbox" in classes
+                    or (target_name and target_name == image_name and target != image_target)
+                ):
+                    target = image_target
+            return f"[{label or target}]({self._markdown_destination(target)})"
+        if tag == "img":
+            target = self._image_target(node)
+            if not target:
+                return ""
+            alt = node.attrs.get("alt", "").replace("]", "\\]").strip()
+            title = node.attrs.get("title", "").replace('"', "\\\"").strip()
+            suffix = f' "{title}"' if title else ""
+            return f"![{alt}]({self._markdown_destination(target)}{suffix})"
+        if tag == "figure":
+            content: list[str] = []
+            for child in node.children:
+                if isinstance(child, HtmlNode) and child.tag == "figcaption":
+                    caption = self._inline_children(child).strip()
+                    if caption:
+                        content.append(f"*{caption}*")
+                else:
+                    rendered = self.render(child).strip()
+                    if rendered:
+                        content.append(rendered)
+            return "\n\n".join(content) + ("\n\n" if content else "")
+        if tag == "figcaption":
+            value = self._inline_children(node).strip()
+            return f"*{value}*" if value else ""
+        if tag == "code" and not self._has_ancestor_hint(node, "pre"):
+            value = self._text_content(node).strip()
+            fence = "``" if "`" in value else "`"
+            return f"{fence}{value}{fence}" if value else ""
+        if tag == "pre":
+            value = self._text_content(node).strip("\n")
+            language = ""
+            for child in node.children:
+                if isinstance(child, HtmlNode) and child.tag == "code":
+                    classes = child.attrs.get("class", "").split()
+                    language = next(
+                        (item.removeprefix("language-") for item in classes if item.startswith("language-")),
+                        "",
+                    )
+                    break
+            fence = "````" if "```" in value else "```"
+            return f"{fence}{language}\n{value}\n{fence}\n\n"
+        if tag in {"ul", "ol"}:
+            return self._render_list(node)
+        if tag == "li":
+            return self._inline_children(node).strip()
+        if tag == "blockquote":
+            value = self._block_children(node).strip()
+            return "\n".join(f"> {line}" if line else ">" for line in value.splitlines()) + "\n\n"
+        if tag == "table":
+            return self._render_table(node)
+        if tag == "details":
+            return self._render_details(node)
+        if tag == "summary":
+            return self._inline_children(node)
+        if tag == "dl":
+            return self._block_children(node)
+        if tag == "dt":
+            return f"**{self._inline_children(node).strip()}**\n"
+        if tag == "dd":
+            return f": {self._inline_children(node).strip()}\n\n"
+        return self._inline_children(node)
+
+    def _has_ancestor_hint(self, node: HtmlNode, tag: str) -> bool:
+        # The tree intentionally has no parent references. Code within pre is handled
+        # by the pre renderer before a child renderer is invoked.
+        return False
+
+    def _inline_children(self, node: HtmlNode) -> str:
+        return self._join_children(node, skip_blank_text=False)
+
+    def _block_children(self, node: HtmlNode) -> str:
+        value = self._join_children(node, skip_blank_text=True)
+        return value + ("\n\n" if value.strip() and not value.endswith("\n\n") else "")
+
+    def _join_children(self, node: HtmlNode, *, skip_blank_text: bool) -> str:
+        parts: list[str] = []
+        for child in node.children:
+            if skip_blank_text and isinstance(child, str) and not child.strip():
+                continue
+            rendered = self.render(child)
+            if parts and parts[-1].endswith("\n\n"):
+                rendered = rendered.lstrip(" \t")
+            parts.append(rendered)
+        return "".join(parts)
+
+    def _text_content(self, node: HtmlNode | str) -> str:
+        if isinstance(node, str):
+            return node
+        if node.tag in self._IGNORED_TAGS:
+            return ""
+        return "".join(self._text_content(child) for child in node.children)
+
+    def _resolve_url(self, value: str, *, image: bool) -> str:
+        raw = html_lib.unescape(value).strip()
+        if not raw:
+            return ""
+        resolved = urllib.parse.urljoin(self.base_url, raw)
+        parsed = urllib.parse.urlsplit(resolved)
+        allowed = {"http", "https"} if image else {"http", "https", "mailto", "tel"}
+        if parsed.scheme.lower() not in allowed:
+            return ""
+        return urllib.parse.quote(
+            resolved,
+            safe=":/?#[]@!$&'*,;=+%~-._",
+        )
+
+    def _markdown_destination(self, value: str) -> str:
+        if any(character.isspace() for character in value):
+            return f"<{value}>"
+        return value
+
+    def _image_target(self, node: HtmlNode) -> str:
+        source = (
+            node.attrs.get("src")
+            or node.attrs.get("data-src")
+            or node.attrs.get("data-original")
+            or ""
+        )
+        return self._resolve_url(source, image=True)
+
+    def _render_title_block(self, node: HtmlNode) -> str:
+        headings = self._descendants(node, "h1")
+        title_node = next(
+            (
+                heading
+                for heading in headings
+                if "title" in heading.attrs.get("class", "").split()
+            ),
+            headings[0] if headings else None,
+        )
+        title = self._text_content(title_node).strip() if title_node else "Source"
+        breadcrumbs: list[str] = []
+        for link in self._descendants(node, "a"):
+            label = self._text_content(link).strip()
+            target = self._resolve_url(link.attrs.get("href", ""), image=False)
+            if label and target:
+                breadcrumbs.append(
+                    f"[{label}]({self._markdown_destination(target)})"
+                )
+        lines = [f"> [!web-header] {title or 'Source'}"]
+        if breadcrumbs:
+            lines.append(f"> {' · '.join(breadcrumbs)}")
+        return "\n".join(lines) + "\n\n"
+
+    def _render_list(self, node: HtmlNode, depth: int = 0) -> str:
+        ordered = node.tag == "ol"
+        lines: list[str] = []
+        index = 1
+        for child in node.children:
+            if not isinstance(child, HtmlNode) or child.tag != "li":
+                continue
+            inline_parts: list[str] = []
+            nested_parts: list[str] = []
+            for item in child.children:
+                if isinstance(item, HtmlNode) and item.tag in {"ul", "ol"}:
+                    nested_parts.append(self._render_list(item, depth + 1).rstrip())
+                else:
+                    inline_parts.append(self.render(item))
+            prefix = f"{index}." if ordered else "-"
+            value = "".join(inline_parts).strip()
+            lines.append(f"{'  ' * depth}{prefix} {value}")
+            lines.extend(part for part in nested_parts if part)
+            index += 1
+        return "\n".join(lines) + ("\n\n" if lines else "")
+
+    def _descendants(self, node: HtmlNode, tag: str) -> list[HtmlNode]:
+        matches: list[HtmlNode] = []
+        for child in node.children:
+            if not isinstance(child, HtmlNode):
+                continue
+            if child.tag == tag:
+                matches.append(child)
+            elif child.tag != "table":
+                matches.extend(self._descendants(child, tag))
+        return matches
+
+    def _render_table(self, node: HtmlNode) -> str:
+        rows: list[list[str]] = []
+        header_index: int | None = None
+        for row in self._descendants(node, "tr"):
+            cells = [
+                child
+                for child in row.children
+                if isinstance(child, HtmlNode) and child.tag in {"th", "td"}
+            ]
+            if not cells:
+                continue
+            if any(cell.attrs.get("rowspan", "1") not in {"", "1"} for cell in cells) or any(
+                cell.attrs.get("colspan", "1") not in {"", "1"} for cell in cells
+            ):
+                return self._serialize_safe_html(node) + "\n\n"
+            if header_index is None and any(cell.tag == "th" for cell in cells):
+                header_index = len(rows)
+            rendered_cells: list[str] = []
+            for cell in cells:
+                value = self._inline_children(cell).strip()
+                value = re.sub(r"\s*\n\s*", "<br>", value).replace("|", "\\|")
+                rendered_cells.append(value)
+            rows.append(rendered_cells)
+
+        if not rows:
+            return ""
+        width = max(len(row) for row in rows)
+        rows = [row + [""] * (width - len(row)) for row in rows]
+        if header_index is None:
+            header = [""] * width
+            body = rows
+        else:
+            header = rows[header_index]
+            body = rows[:header_index] + rows[header_index + 1 :]
+        lines = [
+            f"| {' | '.join(header)} |",
+            f"| {' | '.join('---' for _ in range(width))} |",
+            *[f"| {' | '.join(row)} |" for row in body],
+        ]
+        return "\n".join(lines) + "\n\n"
+
+    def _serialize_safe_html(self, node: HtmlNode | str) -> str:
+        if isinstance(node, str):
+            return html_lib.escape(node)
+        if node.tag in self._IGNORED_TAGS:
+            return ""
+        inner = "".join(self._serialize_safe_html(child) for child in node.children)
+        if node.tag not in self._SAFE_FALLBACK_TAGS:
+            return inner
+        attrs: list[str] = []
+        allowed_attributes = self._SAFE_FALLBACK_ATTRIBUTES.get(node.tag, set())
+        for name, value in node.attrs.items():
+            if name not in allowed_attributes:
+                continue
+            if name in {"href", "src", "poster", "cite"}:
+                value = self._resolve_url(
+                    value,
+                    image=name in {"src", "poster"},
+                )
+                if not value:
+                    continue
+            attrs.append(f' {name}="{html_lib.escape(value, quote=True)}"')
+        if node.tag in _HtmlTreeParser._VOID_TAGS:
+            return f"<{node.tag}{''.join(attrs)}>"
+        return f"<{node.tag}{''.join(attrs)}>{inner}</{node.tag}>"
+
+    def _render_details(self, node: HtmlNode) -> str:
+        summary = "Details"
+        body: list[str] = []
+        for child in node.children:
+            if isinstance(child, HtmlNode) and child.tag == "summary":
+                summary = self._text_content(child).strip() or summary
+            else:
+                rendered = self.render(child).strip()
+                if rendered:
+                    body.append(rendered)
+        classes = set(node.attrs.get("class", "").split())
+        source_type = next(
+            (
+                item.removeprefix("callout-")
+                for item in classes
+                if item.startswith("callout-")
+                and item.removeprefix("callout-") in self._CALLOUT_TYPES
+            ),
+            "",
+        )
+        if source_type:
+            callout_type = self._CALLOUT_TYPES[source_type]
+        elif summary.lower().startswith("checkpoint"):
+            callout_type = "success"
+        elif summary.lower().startswith("self-check"):
+            callout_type = "question"
+        elif summary.lower().startswith("learning objectives"):
+            callout_type = "abstract"
+        else:
+            callout_type = "note"
+        fold_state = "+" if "open" in node.attrs else "-"
+        lines = [f"> [!{callout_type}]{fold_state} {summary}"]
+        inner = "\n\n".join(body)
+        if inner:
+            for line in inner.splitlines():
+                lines.append(f"> {line}" if line else ">")
+        return "\n".join(lines) + "\n\n"
+
+    def _render_math(self, node: HtmlNode) -> str | None:
+        classes = set(node.attrs.get("class", "").split())
+        if node.tag == "math":
+            annotations = self._descendants(node, "annotation")
+            tex = next(
+                (
+                    self._text_content(item).strip()
+                    for item in annotations
+                    if item.attrs.get("encoding", "").lower() in {"application/x-tex", "text/x-tex"}
+                ),
+                "",
+            )
+            if not tex:
+                return None
+            display = node.attrs.get("display", "").lower() == "block"
+            return "\n\n$$\n" + tex + "\n$$\n\n" if display else "$" + tex + "$"
+        if "math" not in classes:
+            return None
+        raw = self._text_content(node).strip()
+        display = "display" in classes or raw.startswith("\\[")
+        raw = re.sub(r"^\\\(|\\\)$", "", raw).strip()
+        raw = re.sub(r"^\\\[|\\\]$", "", raw).strip()
+        if not raw:
+            return ""
+        return "\n\n$$\n" + raw + "\n$$\n\n" if display else "$" + raw + "$"
+
+
+def _find_html_node(root: HtmlNode, predicate: object) -> HtmlNode | None:
+    if callable(predicate) and predicate(root):
+        return root
+    for child in root.children:
+        if isinstance(child, HtmlNode):
+            match = _find_html_node(child, predicate)
+            if match:
+                return match
+    return None
+
+
+def _direct_children(node: HtmlNode, tag: str) -> list[HtmlNode]:
+    return [
+        child
+        for child in node.children
+        if isinstance(child, HtmlNode) and child.tag == tag
+    ]
+
+
+def _toc_heading_for_fragment(
+    selected: HtmlNode,
+    fragment: str,
+    renderer: _HtmlMarkdownRenderer,
+) -> str:
+    target = _find_html_node(
+        selected,
+        lambda node: (
+            node.attrs.get("id") == fragment
+            or node.attrs.get("data-anchor-id") == fragment
+        ),
+    )
+    if target is None:
+        return ""
+    heading = (
+        target
+        if re.fullmatch(r"h[1-6]", target.tag)
+        else _find_html_node(target, lambda node: bool(re.fullmatch(r"h[1-6]", node.tag)))
+    )
+    return renderer._text_content(heading).strip() if heading else ""
+
+
+def _escape_wikilink(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("|", "\\|").replace("]", "\\]")
+
+
+def _render_toc_list(
+    list_node: HtmlNode,
+    selected: HtmlNode,
+    renderer: _HtmlMarkdownRenderer,
+    *,
+    ancestors: tuple[str, ...] = (),
+    depth: int = 0,
+) -> list[str]:
+    lines: list[str] = []
+    for item in _direct_children(list_node, "li"):
+        links = _direct_children(item, "a")
+        nested_lists = _direct_children(item, "ul")
+        if not links:
+            continue
+        link = links[0]
+        href = html_lib.unescape(link.attrs.get("href", "")).strip()
+        if not href.startswith("#") or len(href) == 1:
+            continue
+        fragment = urllib.parse.unquote(href[1:])
+        heading = _toc_heading_for_fragment(selected, fragment, renderer)
+        if not heading:
+            continue
+        label = renderer._text_content(link).strip() or heading
+        path = (*ancestors, heading)
+        destination = "#" + "#".join(_escape_wikilink(part) for part in path)
+        escaped_label = _escape_wikilink(label)
+        if len(path) == 1 and label == heading:
+            wikilink = f"[[{destination}]]"
+        else:
+            wikilink = f"[[{destination}|{escaped_label}]]"
+        lines.append(f"{'  ' * depth}- {wikilink}")
+        for nested in nested_lists:
+            lines.extend(
+                _render_toc_list(
+                    nested,
+                    selected,
+                    renderer,
+                    ancestors=path,
+                    depth=depth + 1,
+                )
+            )
+    return lines
+
+
+def _render_toc_callout(
+    root: HtmlNode,
+    selected: HtmlNode,
+    renderer: _HtmlMarkdownRenderer,
+) -> str:
+    toc = _find_html_node(
+        root,
+        lambda node: (
+            node.tag == "nav"
+            and (
+                node.attrs.get("id", "").lower() == "toc"
+                or node.attrs.get("role", "").lower() == "doc-toc"
+            )
+        ),
+    )
+    if toc is None:
+        return ""
+    toc_lists = _direct_children(toc, "ul")
+    if not toc_lists:
+        return ""
+    items: list[str] = []
+    for toc_list in toc_lists:
+        items.extend(_render_toc_list(toc_list, selected, renderer))
+    if not items:
+        return ""
+    title_node = next(
+        (
+            child
+            for child in toc.children
+            if isinstance(child, HtmlNode) and re.fullmatch(r"h[1-6]", child.tag)
+        ),
+        None,
+    )
+    title = renderer._text_content(title_node).strip() if title_node else ""
+    lines = [f"> [!toc]- {title or 'Table of contents'}"]
+    lines.extend(f"> {line}" for line in items)
+    return "\n".join(lines)
+
+
+def _insert_toc_after_header(markdown: str, toc: str) -> str:
+    if not toc:
+        return markdown
+    if markdown.startswith("> [!web-header]"):
+        boundary = markdown.find("\n\n")
+        if boundary >= 0:
+            return markdown[:boundary] + "\n\n" + toc + "\n\n" + markdown[boundary + 2 :]
+    return toc + "\n\n" + markdown
+
+
+def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
+    """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
+
+    parser = _HtmlTreeParser()
+    parser.feed(html)
+    parser.close()
+    root = parser.root
+    selected = (
+        _find_html_node(root, lambda node: node.tag == "article")
+        or _find_html_node(root, lambda node: node.tag == "main")
+        or _find_html_node(root, lambda node: node.attrs.get("role", "").lower() == "main")
+        or _find_html_node(root, lambda node: node.tag == "body")
+        or root
+    )
+    renderer = _HtmlMarkdownRenderer(
+        base_url,
+        heading_offset=heading_offset,
+    )
+    markdown = renderer.render(selected)
+    toc = _render_toc_callout(root, selected, renderer)
+    markdown = _insert_toc_after_header(markdown, toc)
+    markdown = re.sub(r"[ \t]+\n", "\n", markdown)
+    markdown = re.sub(r"(?m)^ {1,3}(?=#{1,6}\s)", "", markdown)
+    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+    return markdown.strip()
+
+
 def _dotenv_value(raw_value: str) -> str:
     value = raw_value.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
@@ -89,34 +806,67 @@ def _dotenv_value(raw_value: str) -> str:
     return value
 
 
-def load_dotenv(path_value: str | None = None, *, workspace: Path | None = None) -> Path | None:
-    """Load a local .env without overriding variables already in the process."""
+def _central_env_path(script_path: Path | None = None) -> Path | None:
+    source_path = (script_path or Path(__file__)).expanduser().resolve()
+    for parent in source_path.parents:
+        if parent.name.lower() == "skills":
+            return (parent.parent / ".env").resolve()
+    return None
 
-    env_path = Path(path_value).expanduser() if path_value else (workspace or Path.cwd()) / ".env"
-    if not env_path.is_absolute():
-        env_path = (workspace or Path.cwd()) / env_path
-    env_path = env_path.resolve()
-    if not env_path.exists():
-        if path_value:
-            raise CaptureError(f"Environment file does not exist: {env_path}")
-        return None
-    if not env_path.is_file():
-        raise CaptureError(f"Environment file is not a file: {env_path}")
 
-    for line_number, raw_line in enumerate(env_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
+def load_dotenv(
+    path_value: str | None = None,
+    *,
+    workspace: Path | None = None,
+    script_path: Path | None = None,
+) -> Path | None:
+    """Load workspace and central .env files without overriding process variables."""
+
+    base = (workspace or Path.cwd()).expanduser().resolve()
+    if path_value:
+        explicit_path = Path(path_value).expanduser()
+        if not explicit_path.is_absolute():
+            explicit_path = base / explicit_path
+        env_paths = [explicit_path.resolve()]
+    else:
+        env_paths = [(base / ".env").resolve()]
+        central_path = _central_env_path(script_path)
+        if central_path and central_path not in env_paths:
+            env_paths.append(central_path)
+
+    first_loaded: Path | None = None
+    for env_path in env_paths:
+        if not env_path.exists():
+            if path_value:
+                raise CaptureError(f"Environment file does not exist: {env_path}")
             continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            raise CaptureError(f"Invalid .env assignment at {env_path}:{line_number}")
-        name, raw_value = line.split("=", 1)
-        name = name.strip()
-        if not ENV_NAME_PATTERN.fullmatch(name):
-            raise CaptureError(f"Invalid .env variable name at {env_path}:{line_number}")
-        os.environ.setdefault(name, _dotenv_value(raw_value))
-    return env_path
+        if not env_path.is_file():
+            raise CaptureError(f"Environment file is not a file: {env_path}")
+        if first_loaded is None:
+            first_loaded = env_path
+
+        for line_number, raw_line in enumerate(
+            env_path.read_text(encoding="utf-8-sig").splitlines(),
+            start=1,
+        ):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            if "=" not in line:
+                raise CaptureError(
+                    f"Invalid .env assignment at {env_path}:{line_number}"
+                )
+            name, raw_value = line.split("=", 1)
+            name = name.strip()
+            if not ENV_NAME_PATTERN.fullmatch(name):
+                raise CaptureError(
+                    f"Invalid .env variable name at {env_path}:{line_number}"
+                )
+            if name in ALLOWED_DOTENV_NAMES:
+                os.environ.setdefault(name, _dotenv_value(raw_value))
+    return first_loaded
 
 
 def _vault_from_yaml(config_path: Path) -> str | None:
@@ -138,24 +888,28 @@ def resolve_vault(vault_argument: str | None, *, workspace: Path | None = None) 
 
     if vault_argument and vault_argument.strip():
         return vault_argument.strip()
-    env_vault = os.environ.get("OBSIDIAN_VAULT_PATH", "").strip()
-    if env_vault:
-        return env_vault
+    for env_name in (SKILL_VAULT_ENV_NAME, LEGACY_VAULT_ENV_NAME):
+        env_vault = os.environ.get(env_name, "").strip()
+        if env_vault:
+            return env_vault
     config_path = (workspace or Path.cwd()) / "web-to-obsidian.yaml"
     config_vault = _vault_from_yaml(config_path.resolve())
     if config_vault:
         return config_vault
     raise CaptureError(
-        "Obsidian vault is not configured. Use --vault, set OBSIDIAN_VAULT_PATH in .env, "
-        "or add vault_root to web-to-obsidian.yaml."
+        "Obsidian vault is not configured. Use --vault, set "
+        "WEB_TO_OBSIDIAN_VAULT_PATH (or OBSIDIAN_VAULT_PATH) in .env, or add "
+        "vault_root to web-to-obsidian.yaml."
     )
 
 
-def canonicalize_url(value: str) -> str:
-    """Normalize a public URL and remove common tracking parameters."""
-
+def _normalized_url_parts(value: str) -> tuple[urllib.parse.SplitResult, str, str]:
     raw = value.strip()
-    parsed = urllib.parse.urlsplit(raw)
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        port = parsed.port
+    except ValueError as exc:
+        raise CaptureError("The source URL is invalid.") from exc
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         raise CaptureError("The source URL must be an absolute HTTP(S) URL.")
 
@@ -165,12 +919,25 @@ def canonicalize_url(value: str) -> str:
         hostname = hostname.encode("idna").decode("ascii")
     except UnicodeError as exc:
         raise CaptureError("The source URL contains an invalid hostname.") from exc
-
-    port = parsed.port
+    display_hostname = f"[{hostname}]" if ":" in hostname else hostname
     if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
-        netloc = f"{hostname}:{port}"
+        netloc = f"{display_hostname}:{port}"
     else:
-        netloc = hostname
+        netloc = display_hostname
+    return parsed, scheme, netloc
+
+
+def _is_sensitive_query_key(key: str) -> bool:
+    normalized = key.lower()
+    return (
+        normalized in SENSITIVE_QUERY_PARTS
+        or any(part in normalized for part in ("token", "secret", "password"))
+        or normalized.startswith(SENSITIVE_QUERY_PREFIXES)
+    )
+
+
+def _legacy_canonicalize_url(value: str) -> str:
+    parsed, scheme, netloc = _normalized_url_parts(value)
 
     path = parsed.path or "/"
     if path != "/":
@@ -186,6 +953,49 @@ def canonicalize_url(value: str) -> str:
     query = urllib.parse.urlencode(kept_query, doseq=True)
 
     return urllib.parse.urlunsplit((scheme, netloc, path, query, ""))
+
+
+def sanitize_url(value: str) -> SafeUrl:
+    """Remove credentials and sensitive query values before storage or hashing."""
+
+    parsed, scheme, netloc = _normalized_url_parts(value)
+    reasons: list[str] = []
+    if parsed.username is not None or parsed.password is not None:
+        reasons.append("embedded_credentials")
+
+    source_query: list[tuple[str, str]] = []
+    canonical_query: list[tuple[str, str]] = []
+    for key, item_value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
+        if _is_sensitive_query_key(key):
+            if "sensitive_query" not in reasons:
+                reasons.append("sensitive_query")
+            continue
+        source_query.append((key, item_value))
+        normalized_key = key.lower()
+        if normalized_key.startswith("utm_") or normalized_key in TRACKING_PARAMETERS:
+            continue
+        canonical_query.append((key, item_value))
+
+    path = parsed.path or "/"
+    source_url = urllib.parse.urlunsplit(
+        (scheme, netloc, path, urllib.parse.urlencode(source_query, doseq=True), parsed.fragment)
+    )
+    canonical_url = urllib.parse.urlunsplit(
+        (scheme, netloc, path, urllib.parse.urlencode(canonical_query, doseq=True), "")
+    )
+    return SafeUrl(
+        source_url=source_url,
+        canonical_url=canonical_url,
+        legacy_canonical_url=_legacy_canonicalize_url(source_url),
+        redacted=bool(reasons),
+        reason_codes=tuple(reasons),
+    )
+
+
+def canonicalize_url(value: str) -> str:
+    """Normalize a safe URL without changing path or query ordering semantics."""
+
+    return sanitize_url(value).canonical_url
 
 
 def source_id_for(canonical_url: str) -> str:
@@ -207,16 +1017,15 @@ def sanitize_filename(title: str, fallback: str, max_length: int = 96) -> str:
 
 def is_safe_public_url_for_tavily(value: str) -> tuple[bool, str | None]:
     try:
-        parsed = urllib.parse.urlsplit(value)
-    except ValueError:
+        safe_url = sanitize_url(value)
+        parsed = urllib.parse.urlsplit(safe_url.source_url)
+    except CaptureError:
         return False, "invalid URL"
 
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-        return False, "only absolute HTTP(S) URLs are supported"
-    if parsed.username or parsed.password:
-        return False, "URL contains embedded credentials"
+    if safe_url.redacted:
+        return False, "URL contains credentials or sensitive query parameters"
 
-    host = parsed.hostname.lower().rstrip(".")
+    host = parsed.hostname.lower().rstrip(".") if parsed.hostname else ""
     if host == "localhost" or host.endswith((".local", ".internal", ".localhost")):
         return False, "local or internal host"
 
@@ -227,10 +1036,6 @@ def is_safe_public_url_for_tavily(value: str) -> tuple[bool, str | None]:
     if address and not address.is_global:
         return False, "private or non-global IP address"
 
-    for key, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
-        normalized_key = key.lower()
-        if normalized_key in SENSITIVE_QUERY_PARTS or any(part in normalized_key for part in ("token", "secret", "password")):
-            return False, f"potentially sensitive query parameter: {key}"
     return True, None
 
 
@@ -253,6 +1058,31 @@ def _yaml_list(name: str, values: Iterable[str]) -> list[str]:
     return [f"{name}:", *[f"  - {_yaml_string(value)}" for value in cleaned]]
 
 
+def _decode_frontmatter_scalar(raw: str) -> str:
+    value = raw.strip()
+    if value.startswith('"'):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return ""
+        return decoded if isinstance(decoded, str) else str(decoded)
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return value
+
+
+def _frontmatter_fields(text: str) -> dict[str, str]:
+    match = re.match(r"\A---\r?\n(?P<body>.*?)\r?\n---(?:\r?\n|\Z)", text, re.DOTALL)
+    if not match:
+        return {}
+    fields: dict[str, str] = {}
+    for line in match.group("body").splitlines():
+        field = re.match(r"^(?P<name>[A-Za-z_][A-Za-z0-9_-]*):\s*(?P<value>.*)$", line)
+        if field:
+            fields[field.group("name")] = _decode_frontmatter_scalar(field.group("value"))
+    return fields
+
+
 def _iter_markdown_files(vault: Path) -> Iterable[Path]:
     for root, directories, files in os.walk(vault):
         directories[:] = [name for name in directories if name not in SKIP_DIRECTORIES]
@@ -262,20 +1092,84 @@ def _iter_markdown_files(vault: Path) -> Iterable[Path]:
                 yield root_path / filename
 
 
-def find_duplicate(vault: Path, source_id: str, canonical_url: str) -> Path | None:
-    id_pattern = re.compile(rf"(?m)^source_id:\s*[\"']?{re.escape(source_id)}[\"']?\s*$")
-    canonical_pattern = re.compile(
-        rf"(?m)^canonical_url:\s*[\"']?{re.escape(canonical_url)}[\"']?\s*$"
+def _read_note_identity(note_path: Path) -> NoteIdentity | None:
+    try:
+        with note_path.open("r", encoding="utf-8") as handle:
+            fields = _frontmatter_fields(handle.read(32768))
+    except (OSError, UnicodeError):
+        return None
+    if fields.get("type") != "source":
+        return None
+    return NoteIdentity(
+        path=note_path,
+        source_id=fields.get("source_id", ""),
+        source_url=fields.get("source_url", ""),
+        canonical_url=fields.get("canonical_url", ""),
+        canonicalization_version=fields.get("canonicalization_version", ""),
     )
+
+
+def _is_proven_legacy(identity: NoteIdentity) -> bool:
+    if identity.canonicalization_version == "1":
+        return True
+    if identity.canonicalization_version or not identity.source_url or not identity.canonical_url:
+        return False
+    try:
+        v1 = _legacy_canonicalize_url(identity.source_url)
+        v2 = canonicalize_url(identity.source_url)
+    except CaptureError:
+        return False
+    return identity.canonical_url == v1 and v1 != v2
+
+
+def find_duplicate(vault: Path, safe_url: SafeUrl, source_id: str) -> Path | None:
     for note_path in _iter_markdown_files(vault):
-        try:
-            with note_path.open("r", encoding="utf-8") as handle:
-                head = handle.read(32768)
-        except (OSError, UnicodeError):
+        identity = _read_note_identity(note_path)
+        if not identity:
             continue
-        if id_pattern.search(head) or canonical_pattern.search(head):
+        if identity.source_id == source_id or identity.canonical_url == safe_url.canonical_url:
             return note_path
+        if not _is_proven_legacy(identity):
+            continue
+        if identity.canonical_url != safe_url.legacy_canonical_url:
+            continue
+        if identity.source_id and identity.source_id != source_id_for(identity.canonical_url):
+            continue
+        return note_path
     return None
+
+
+@contextmanager
+def _identity_claim(vault: Path, source_id: str) -> Iterable[None]:
+    lock_directory = vault / IDENTITY_LOCK_DIRECTORY
+    lock_directory.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_directory / f"{source_id}.lock"
+    token = secrets.token_hex(16)
+    deadline = time.monotonic() + IDENTITY_LOCK_TIMEOUT_SECONDS
+
+    while True:
+        try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write(token)
+                handle.flush()
+                os.fsync(handle.fileno())
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise CaptureError("Another capture for this source is still in progress.")
+            time.sleep(IDENTITY_LOCK_POLL_SECONDS)
+        except OSError as exc:
+            raise CaptureError("Could not create a safe identity lock.") from exc
+
+    try:
+        yield
+    finally:
+        try:
+            if lock_path.read_text(encoding="ascii") == token:
+                lock_path.unlink()
+        except (FileNotFoundError, OSError, UnicodeError):
+            pass
 
 
 def extract_with_tavily(url: str, depth: str, timeout: float = 30.0) -> TavilyResult:
@@ -300,7 +1194,7 @@ def extract_with_tavily(url: str, depth: str, timeout: float = 30.0) -> TavilyRe
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "web-to-obsidian/0.1.0",
+            "User-Agent": "web-to-obsidian/0.3.0",
         },
     )
 
@@ -310,17 +1204,13 @@ def extract_with_tavily(url: str, depth: str, timeout: float = 30.0) -> TavilyRe
     except urllib.error.HTTPError as exc:
         raise CaptureError(f"Tavily extraction failed with HTTP {exc.code}.") from exc
     except urllib.error.URLError as exc:
-        raise CaptureError(f"Tavily extraction could not connect: {exc.reason}.") from exc
+        raise CaptureError("Tavily extraction could not connect.") from exc
     except (TimeoutError, json.JSONDecodeError) as exc:
         raise CaptureError("Tavily extraction returned an invalid or timed-out response.") from exc
 
     results = data.get("results") or []
     if not results:
-        failed = data.get("failed_results") or []
-        message = "Tavily could not extract this URL."
-        if failed and isinstance(failed[0], dict) and failed[0].get("error"):
-            message = f"Tavily could not extract this URL: {failed[0]['error']}"
-        raise CaptureError(message)
+        raise CaptureError("Tavily could not extract this URL.")
 
     content = str(results[0].get("raw_content") or "").strip()
     if not content:
@@ -336,6 +1226,36 @@ def _within(root: Path, candidate: Path) -> bool:
         return False
 
 
+def _resolve_within(
+    root: Path,
+    candidate: Path,
+    *,
+    attempts: int = 3,
+) -> Path | None:
+    """Resolve a path inside root, tolerating transient Windows filesystem races."""
+
+    for attempt in range(attempts):
+        resolved = candidate.resolve()
+        if _within(root, resolved):
+            return resolved
+        if attempt + 1 < attempts:
+            time.sleep(0)
+    return None
+
+
+def _normalize_cssclasses(values: Iterable[str]) -> list[str]:
+    cssclasses = ["web-clip"]
+    for value in values:
+        cssclass = value.strip()
+        if not CSS_CLASS_PATTERN.fullmatch(cssclass):
+            raise CaptureError(
+                "CSS class must contain only letters, numbers, hyphens, or underscores."
+            )
+        if cssclass not in cssclasses:
+            cssclasses.append(cssclass)
+    return cssclasses
+
+
 def _render_note(
     *,
     title: str,
@@ -343,17 +1263,20 @@ def _render_note(
     source_id: str,
     source_url: str,
     canonical_url: str,
+    source_url_redacted: bool,
     author: str,
     published: str,
     captured: str,
     capture_method: str,
     platform: str,
+    cssclasses: list[str],
     tags: list[str],
     topics: list[str],
     why: str,
     selection: str,
     summary: str,
     content: str,
+    rich_html: bool,
     tavily_request_id: str | None,
 ) -> str:
     lines = [
@@ -361,10 +1284,13 @@ def _render_note(
         "type: source",
         f"content_type: {content_type}",
         "status: inbox",
+        f"cssclasses: [{', '.join(cssclasses)}]",
         f"source_id: {_yaml_string(source_id)}",
         f"title: {_yaml_string(title)}",
         f"source_url: {_yaml_string(source_url)}",
         f"canonical_url: {_yaml_string(canonical_url)}",
+        "canonicalization_version: 2",
+        f"source_url_redacted: {'true' if source_url_redacted else 'false'}",
         f"author: {_yaml_string(author)}",
         f"published: {_yaml_string(published)}" if published else "published:",
         f"captured: {_yaml_string(captured)}",
@@ -386,11 +1312,157 @@ def _render_note(
     if summary:
         lines.extend(["", "## Tóm tắt", "", summary])
     if content:
-        lines.extend(["", "## Nội dung nguồn", "", content])
+        source_lines = ["", SOURCE_CONTENT_START]
+        if not rich_html:
+            source_lines.extend(["## Nội dung nguồn", ""])
+        source_lines.extend([content, SOURCE_CONTENT_END])
+        lines.extend(source_lines)
     if not content and not selection:
         lines.extend(["", "> [!warning] Link-only capture", "> Không lấy được nội dung trang tại thời điểm lưu."])
-    lines.extend(["", "## Ghi chú của tôi", ""])
+    lines.extend(["", PERSONAL_NOTES_START, "## Ghi chú của tôi", ""])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _destination_candidates(
+    destination_folder: Path,
+    captured_date: str,
+    filename_title: str,
+    source_id: str,
+) -> Iterable[Path]:
+    yield destination_folder / f"{captured_date} - {filename_title}.md"
+    short_id = source_id[:6]
+    yield destination_folder / f"{captured_date} - {filename_title} - {short_id}.md"
+    index = 2
+    while True:
+        yield destination_folder / f"{captured_date} - {filename_title} - {short_id}-{index}.md"
+        index += 1
+
+
+def _duplicate_result(
+    duplicate: Path,
+    *,
+    source_id: str,
+    canonical_url: str,
+    source_url_redacted: bool,
+    warnings: list[str],
+) -> dict[str, object]:
+    return {
+        "status": "duplicate",
+        "source_id": source_id,
+        "canonical_url": canonical_url,
+        "source_url_redacted": source_url_redacted,
+        "path": str(duplicate.resolve()),
+        "warnings": warnings,
+    }
+
+
+def _merge_refreshed_source_content(
+    existing_note: str,
+    content: str,
+    capture_method: str,
+    *,
+    rich_html: bool = False,
+) -> str:
+    """Replace only the generated source section and preserve user notes/metadata."""
+
+    personal_markers = [
+        match.start()
+        for match in re.finditer(
+            rf"(?m)^{re.escape(PERSONAL_NOTES_START)}\s*$",
+            existing_note,
+        )
+    ]
+    if len(personal_markers) > 1:
+        raise CaptureError("The existing note has an ambiguous personal-notes boundary.")
+    if personal_markers:
+        notes_start = personal_markers[0]
+        tail = existing_note[notes_start:]
+    else:
+        legacy_notes = list(
+            re.finditer(r"(?m)^## Ghi chú của tôi\s*$", existing_note)
+        )
+        if len(legacy_notes) != 1:
+            raise CaptureError(
+                "The existing note has an ambiguous personal-notes boundary."
+            )
+        notes_start = legacy_notes[0].start()
+        tail = PERSONAL_NOTES_START + "\n" + existing_note[notes_start:]
+
+    source_markers = [
+        match.start()
+        for match in re.finditer(
+            rf"(?m)^{re.escape(SOURCE_CONTENT_START)}\s*$",
+            existing_note[:notes_start],
+        )
+    ]
+    if len(source_markers) > 1:
+        raise CaptureError("The existing note has an ambiguous source-content boundary.")
+    if source_markers:
+        source_start = source_markers[0]
+    else:
+        legacy_sources = list(
+            re.finditer(
+                r"(?m)^## Nội dung nguồn\s*$",
+                existing_note[:notes_start],
+            )
+        )
+        if len(legacy_sources) > 1:
+            raise CaptureError(
+                "The existing note has an ambiguous source-content boundary."
+            )
+        source_start = legacy_sources[0].start() if legacy_sources else notes_start
+
+    if notes_start <= source_start:
+        raise CaptureError(
+            "The existing note has invalid generated section boundaries; refresh stopped."
+        )
+    prefix = existing_note[:source_start]
+
+    prefix = re.sub(
+        r"(?m)^capture_method:\s*.*$",
+        f"capture_method: {capture_method}",
+        prefix,
+        count=1,
+    )
+    prefix = re.sub(
+        r"(?m)^link_only:\s*.*$",
+        "link_only: false",
+        prefix,
+        count=1,
+    )
+    heading = "" if rich_html else "## Nội dung nguồn\n\n"
+    return (
+        prefix.rstrip()
+        + f"\n\n{SOURCE_CONTENT_START}\n{heading}"
+        + content.strip()
+        + f"\n{SOURCE_CONTENT_END}\n\n"
+        + tail.lstrip()
+    ).rstrip() + "\n"
+
+
+def _atomic_replace_note(path: Path, text: str) -> None:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=path.parent,
+            prefix=f".{path.stem}-refresh-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        os.replace(temp_path, path)
+        temp_path = None
+    except OSError as exc:
+        raise CaptureError("Could not atomically refresh the existing note.") from exc
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
 
 
 def run_capture(args: argparse.Namespace) -> dict[str, object]:
@@ -398,25 +1470,46 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
     if not vault.is_dir():
         raise CaptureError(f"Vault does not exist or is not a directory: {vault}")
 
-    canonical_url = canonicalize_url(args.url)
+    cssclasses = _normalize_cssclasses(getattr(args, "cssclass", []))
+    safe_url = sanitize_url(args.url)
+    canonical_url = safe_url.canonical_url
     source_id = source_id_for(canonical_url)
-    duplicate = find_duplicate(vault, source_id, canonical_url)
-    if duplicate:
-        return {
-            "status": "duplicate",
-            "source_id": source_id,
-            "canonical_url": canonical_url,
-            "path": str(duplicate.resolve()),
-        }
+    warnings: list[str] = []
+    if safe_url.redacted:
+        warnings.append("Sensitive URL components were removed before storage.")
+
+    refresh_existing = bool(getattr(args, "refresh_existing", False))
+    duplicate = find_duplicate(vault, safe_url, source_id)
+    if duplicate and not refresh_existing:
+        return _duplicate_result(
+            duplicate,
+            source_id=source_id,
+            canonical_url=canonical_url,
+            source_url_redacted=safe_url.redacted,
+            warnings=warnings,
+        )
 
     content = _read_optional_file(args.content_file)
+    html_content = _read_optional_file(getattr(args, "html_file", None))
+    rich_html = bool(html_content)
+    if html_content:
+        converted = html_to_markdown(
+            html_content,
+            safe_url.source_url,
+            heading_offset=1,
+        )
+        if not converted:
+            raise CaptureError("The HTML file did not contain usable page content.")
+        content = converted
     selection = _read_optional_file(args.selection_file)
     had_browser_content = bool(content or selection)
-    warnings: list[str] = []
     tavily_request_id: str | None = None
     tavily_depth: str | None = None
 
-    needs_content = len(content) < args.min_content_chars
+    if args.tavily == "auto":
+        needs_content = not bool(content or selection)
+    else:
+        needs_content = args.tavily in {"basic", "advanced"}
     if args.tavily != "off" and needs_content:
         safe, reason = is_safe_public_url_for_tavily(args.url)
         if not safe:
@@ -426,17 +1519,20 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             last_error: CaptureError | None = None
             for depth in depths:
                 try:
-                    result = extract_with_tavily(args.url, depth, timeout=args.timeout)
+                    result = extract_with_tavily(
+                        safe_url.source_url, depth, timeout=args.timeout
+                    )
+                    tavily_request_id = result.request_id
                     if len(result.content) > len(content):
                         content = result.content
                         tavily_depth = result.depth
-                        tavily_request_id = result.request_id
+                        rich_html = False
                     if len(content) >= args.min_content_chars:
                         break
                 except CaptureError as exc:
                     last_error = exc
             if not tavily_depth and last_error:
-                warnings.append(str(last_error))
+                warnings.append("Tavily extraction failed.")
 
     capture_method = args.capture_method
     if tavily_depth:
@@ -452,16 +1548,26 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
     filename_title = sanitize_filename(title, source_id)
     captured_date = captured[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", captured) else datetime.now().date().isoformat()
 
-    destination_folder = (vault / args.folder).resolve()
-    if not _within(vault, destination_folder):
+    destination_folder_candidate = (
+        duplicate.parent
+        if duplicate and refresh_existing
+        else vault / args.folder
+    )
+    destination_folder = _resolve_within(vault, destination_folder_candidate)
+    if destination_folder is None:
         raise CaptureError("Destination folder must stay inside the vault.")
 
-    filename = f"{captured_date} - {filename_title}.md"
-    destination = destination_folder / filename
-    if destination.exists():
-        destination = destination_folder / f"{captured_date} - {filename_title} - {source_id[:6]}.md"
-    if not _within(vault, destination.resolve()):
+    if duplicate and refresh_existing:
+        destination = duplicate.resolve()
+    else:
+        candidates = _destination_candidates(
+            destination_folder, captured_date, filename_title, source_id
+        )
+        destination = next(candidate for candidate in candidates if not candidate.exists())
+    resolved_destination = _resolve_within(vault, destination)
+    if resolved_destination is None:
         raise CaptureError("Destination note must stay inside the vault.")
+    destination = resolved_destination
 
     tags = list(dict.fromkeys(["web-capture", f"source/{args.content_type}", *args.tag]))
     topics = list(dict.fromkeys(args.topic))
@@ -469,19 +1575,22 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
         title=title,
         content_type=args.content_type,
         source_id=source_id,
-        source_url=args.url.strip(),
+        source_url=safe_url.source_url,
         canonical_url=canonical_url,
+        source_url_redacted=safe_url.redacted,
         author=args.author.strip(),
         published=args.published.strip(),
         captured=captured,
         capture_method=capture_method,
         platform=platform,
+        cssclasses=cssclasses,
         tags=tags,
         topics=topics,
         why=args.why.strip(),
         selection=selection,
         summary=args.summary.strip(),
         content=content,
+        rich_html=rich_html,
         tavily_request_id=tavily_request_id,
     )
 
@@ -490,6 +1599,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             "status": "dry-run",
             "source_id": source_id,
             "canonical_url": canonical_url,
+            "source_url_redacted": safe_url.redacted,
             "capture_method": capture_method,
             "link_only": not bool(content or selection),
             "path": str(destination),
@@ -497,30 +1607,91 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
         }
 
     destination_folder.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            newline="\n",
-            dir=destination_folder,
-            prefix=f".{source_id}-",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            handle.write(note)
-            handle.flush()
-            os.fsync(handle.fileno())
-            temp_path = Path(handle.name)
-        os.replace(temp_path, destination)
-    finally:
-        if temp_path and temp_path.exists():
-            temp_path.unlink()
+    with _identity_claim(vault, source_id):
+        duplicate = find_duplicate(vault, safe_url, source_id)
+        if duplicate:
+            if refresh_existing:
+                if not content:
+                    raise CaptureError(
+                        "Refreshing an existing note requires captured source content."
+                    )
+                if not _within(vault, duplicate.resolve()):
+                    raise CaptureError("Existing note must stay inside the vault.")
+                existing_note = duplicate.read_text(encoding="utf-8")
+                refreshed_note = _merge_refreshed_source_content(
+                    existing_note,
+                    content,
+                    capture_method,
+                    rich_html=rich_html,
+                )
+                _atomic_replace_note(duplicate, refreshed_note)
+                return {
+                    "status": "refreshed",
+                    "source_id": source_id,
+                    "canonical_url": canonical_url,
+                    "source_url_redacted": safe_url.redacted,
+                    "capture_method": capture_method,
+                    "link_only": False,
+                    "path": str(duplicate.resolve()),
+                    "warnings": warnings,
+                }
+            return _duplicate_result(
+                duplicate,
+                source_id=source_id,
+                canonical_url=canonical_url,
+                source_url_redacted=safe_url.redacted,
+                warnings=warnings,
+            )
+
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                newline="\n",
+                dir=destination_folder,
+                prefix=f".{source_id}-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(note)
+                handle.flush()
+                os.fsync(handle.fileno())
+                temp_path = Path(handle.name)
+            for candidate in _destination_candidates(
+                destination_folder, captured_date, filename_title, source_id
+            ):
+                resolved_candidate = _resolve_within(vault, candidate)
+                if resolved_candidate is None:
+                    raise CaptureError("Destination note must stay inside the vault.")
+                try:
+                    os.link(temp_path, resolved_candidate)
+                    destination = resolved_candidate
+                    break
+                except FileExistsError:
+                    duplicate = find_duplicate(vault, safe_url, source_id)
+                    if duplicate:
+                        return _duplicate_result(
+                            duplicate,
+                            source_id=source_id,
+                            canonical_url=canonical_url,
+                            source_url_redacted=safe_url.redacted,
+                            warnings=warnings,
+                        )
+                    continue
+                except OSError as exc:
+                    raise CaptureError(
+                        "This filesystem cannot publish a note without overwrite risk."
+                    ) from exc
+        finally:
+            if temp_path and temp_path.exists():
+                temp_path.unlink()
 
     return {
         "status": "created",
         "source_id": source_id,
         "canonical_url": canonical_url,
+        "source_url_redacted": safe_url.redacted,
         "capture_method": capture_method,
         "link_only": not bool(content or selection),
         "path": str(destination.resolve()),
@@ -532,11 +1703,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--vault",
-        help="Vault path; otherwise OBSIDIAN_VAULT_PATH or web-to-obsidian.yaml is used",
+        help=(
+            "Vault path; otherwise WEB_TO_OBSIDIAN_VAULT_PATH, "
+            "OBSIDIAN_VAULT_PATH, or web-to-obsidian.yaml is used"
+        ),
     )
     parser.add_argument(
         "--env-file",
-        help="Optional .env path; defaults to .env in the current working directory",
+        help=(
+            "Optional .env path; otherwise loads workspace .env and then the "
+            "central .env above the skills directory"
+        ),
     )
     parser.add_argument("--url", required=True, help="Original public or browser URL")
     parser.add_argument("--title", default="", help="Source title")
@@ -546,16 +1723,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--content-type", choices=CONTENT_TYPES, default="bookmark")
     parser.add_argument("--capture-method", choices=CAPTURE_METHODS, default="manual")
     parser.add_argument("--content-file", help="UTF-8 file containing captured page content; use - for stdin")
+    parser.add_argument(
+        "--html-file",
+        help="UTF-8 browser DOM/HTML file to convert into Obsidian-friendly Markdown",
+    )
     parser.add_argument("--selection-file", help="UTF-8 file containing the selected excerpt")
     parser.add_argument("--summary", default="", help="Optional user-approved summary")
     parser.add_argument("--why", default="", help="Why the user saved the source")
     parser.add_argument("--tag", action="append", default=[], help="Additional tag; repeat as needed")
     parser.add_argument("--topic", action="append", default=[], help="Topic; repeat as needed")
+    parser.add_argument(
+        "--cssclass",
+        action="append",
+        default=[],
+        help="Optional Obsidian CSS class; repeat as needed (web-clip is always included)",
+    )
     parser.add_argument("--folder", default="00 Inbox/Web", help="Destination relative to vault root")
     parser.add_argument("--captured", default="", help="ISO timestamp; defaults to local current time")
     parser.add_argument("--tavily", choices=("off", "auto", "basic", "advanced"), default="off")
     parser.add_argument("--min-content-chars", type=int, default=400)
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--refresh-existing",
+        action="store_true",
+        help=(
+            "Refresh only the generated source-content section of an exact duplicate; "
+            "preserves the existing personal-notes section"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 

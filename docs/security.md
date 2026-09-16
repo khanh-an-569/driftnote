@@ -19,9 +19,13 @@ Tavily is allowed only for intentionally public HTTP(S) pages. Do not use it for
 
 `TAVILY_API_KEY` must come from the environment. Never place it in a repository, command argument, prompt, note, screenshot, or MCP URL committed to source control. GitHub discovery is restricted to public `github.com` results; a search result does not authorize cloning, executing, changing, publishing, or pushing anything.
 
+The capture helper removes URL user information and sensitive query fields (including token/secret/password names and `x-amz-`/`x-goog-` signatures) before storage or hashing. A URL that required redaction is never sent to Tavily. Its `.env` loader accepts only `TAVILY_API_KEY`, `WEB_TO_OBSIDIAN_VAULT_PATH`, and legacy `OBSIDIAN_VAULT_PATH`; it never logs values.
+
 ## Local write boundary
 
-The destination must resolve inside the confirmed vault. The capture helper refuses relative folder traversal. Existing notes are never overwritten solely because their filenames match; duplicate detection uses source identity first.
+The destination must resolve inside the confirmed vault. The capture helper refuses relative folder traversal. It publishes with an atomic no-clobber link and fails closed when that primitive is unavailable. Duplicate detection checks exact canonical URL/source ID v2 before fallback to a proven legacy note; titles only influence collision-safe filenames. A source-ID lock times out after 10 seconds and is never deleted or taken over automatically; stale-lock recovery is a deliberate manual operation.
+
+`audit_sensitive_urls.py` is read-only by default. It audits `source_url`, `canonical_url`, and every recognized source callout independently. Explicit `--apply` updates them only when all valid URLs converge and the file is unchanged, without renaming notes or creating backups. Invalid URLs, identity mismatches, duplicate identities, and concurrent edits remain unchanged for manual review. JSON reports contain only paths, field/reason-code issue pairs, and manual-review state—not URL values.
 
 ## Copyright and media
 

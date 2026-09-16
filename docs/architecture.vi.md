@@ -14,11 +14,11 @@ Cung cấp tab hiện tại, văn bản được chọn và ngữ cảnh trình 
 
 ### `web-to-obsidian`
 
-Chuyển selection, tab hoặc URL thành một source note. Skill áp dụng quy tắc riêng tư, phân loại nguồn và gọi `save_capture.py` để chuẩn hóa URL nhất quán, phát hiện trùng lặp và ghi file.
+Chuyển selection, tab hoặc URL thành một source note. Skill áp dụng quy tắc riêng tư, redact URL nhạy cảm trước khi tính identity và gọi `save_capture.py` để canonicalize v2, fallback duplicate legacy đã được chứng minh, khóa identity và publish nguyên tử no-clobber. `audit_sensitive_urls.py` cung cấp migration rõ ràng, dry-run trước cho note cũ.
 
 ### Tavily Extract
 
-Là phương án dự phòng cho URL công khai khi nội dung từ trình duyệt trống hoặc chưa đầy đủ. Chính sách là trích xuất `basic` trước, thử lại `advanced` một lần, rồi tạo note chỉ có liên kết. Tavily Search chỉ dành cho việc xác minh và tìm nguồn chuẩn.
+Là phương án dự phòng cho URL công khai. Chế độ tự động chỉ chạy khi cả browser content và selection đều rỗng; yêu cầu `basic` hoặc `advanced` rõ ràng có thể bổ sung capture chưa đầy đủ. URL đã cần redact không bao giờ đi qua ranh giới này. Request ID thành công luôn được ghi dù content không được chọn; `capture_method` chỉ đổi khi dùng content Tavily. Tavily Search chỉ dành cho việc xác minh và tìm nguồn chuẩn.
 
 ### `github-repo-research`
 
@@ -46,14 +46,18 @@ Properties cung cấp trường dữ liệu ổn định mà máy có thể đ�
 
 ## Định danh và chống trùng lặp
 
-Công cụ phụ loại bỏ fragment và các tham số theo dõi phổ biến, sắp xếp các query parameter còn lại rồi băm URL chuẩn bằng SHA-256. Mười sáu ký tự hex đầu tiên trở thành `source_id`.
+Canonicalization v2 chuẩn hóa scheme, IDNA host và default port; loại query nhạy cảm, tham số tracking đã biết và fragment; đồng thời giữ trailing slash cùng thứ tự các query parameter còn lại. Helper băm URL chuẩn bằng SHA-256; 16 ký tự hex đầu tiên trở thành `source_id`, và note mới ghi `canonicalization_version: 2`.
 
 Tiêu đề chỉ dùng để trình bày, không phải định danh. Trang đổi tên vẫn giữ cùng source ID. URL có query khác về nội dung sẽ có source ID khác, trừ khi chỉ khác các tham số theo dõi đã biết.
+
+Duplicate lookup kiểm tra exact canonical URL/source ID v2 trước. Fallback chỉ áp dụng cho note ghi version 1 hoặc note không version có các field chứng minh canonicalization v1. Publish giữ exclusive lock theo source ID trong lúc recheck duplicate và tạo hard link no-clobber. Lock timeout sau 10 giây sẽ fail closed; không tự xóa hoặc chiếm stale lock.
 
 ## Hành vi khi lỗi
 
 - Thiếu nội dung trình duyệt và Tavily bị tắt: tạo note chỉ có liên kết.
-- Tavily không khả dụng hoặc thất bại: tạo note chỉ có liên kết và báo cảnh báo.
+- Tavily không khả dụng hoặc thất bại: giữ browser content nếu có; nếu không thì tạo note chỉ có liên kết, và báo warning value-free.
 - Đã có source ID hoặc URL chuẩn: trả về đường dẫn note hiện có và không ghi thêm.
 - Đích nằm ngoài vault: dừng trước khi ghi.
-- Khi ghi file chưa hoàn tất: dùng file tạm cùng thư mục và thay thế file theo cách nguyên tử.
+- Không lấy được identity lock trong 10 giây: fail closed và yêu cầu xử lý stale lock thủ công.
+- Publish capture: fsync file tạm cùng thư mục rồi tạo hard link nguyên tử no-clobber; không fallback sang overwrite.
+- Scanner chỉ apply khi mọi structured URL hội tụ và note chưa đổi từ lúc đọc; trường hợp khác phải review thủ công.
