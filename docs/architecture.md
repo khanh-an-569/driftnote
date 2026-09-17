@@ -26,7 +26,9 @@ Stores immutable evidence plus user context. `status` drives workflow; folders p
 
 ### `obsidian-clip-beautifier`
 
-Configures and audits the formatting and presentation layer around captured Markdown: installs the Web Clipper template and scoped CSS snippet, checks Linter rules, and prepares polished exports. It operates on captured notes, never captures browser content itself, and never performs semantic rewriting.
+Configures and audits the formatting and presentation layer around captured Markdown: installs scoped CSS, checks Linter rules, prepares polished exports, and stages an inactive experimental Web Clipper template asset. Importing or configuring that template remains optional and requires explicit user intent. The skill operates on captured notes, never captures browser content itself, and never performs semantic rewriting.
+
+The primary supported producer for this layer is the bundled `web-to-obsidian` skill. The official Obsidian Web Clipper template is an experimental compatibility path that creates a smaller, different note schema; it is not currently stable enough to claim equivalent behavior. Shared `web-clip` styling does not provide the capture helper's identity, redaction, duplicate, publication, or refresh guarantees.
 
 ### Properties, Bases, and MOCs
 

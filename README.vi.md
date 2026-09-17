@@ -11,7 +11,7 @@ Quy trình có thể truy ngược từ trình duyệt tới Obsidian: lấy n�
 Việc thu thập và trình bày là hai công việc khác nhau. Repo này tách chúng thành hai giai đoạn:
 
 1. `web-to-obsidian` lưu nhanh một source note có thể truy ngược.
-2. `obsidian-clip-beautifier` cấu hình template capture sạch, định dạng Markdown thận trọng và CSS chỉ áp dụng cho web clip.
+2. `obsidian-clip-beautifier` cấu hình định dạng Markdown thận trọng và CSS chỉ áp dụng cho web clip, đồng thời chuẩn bị một asset template Web Clipper thử nghiệm chưa được kích hoạt.
 
 Nội dung nguồn thô được giữ nguyên. URL trùng được bỏ qua. Tavily chỉ là fallback cho web công khai, không phải cách vượt đăng nhập hoặc paywall.
 
@@ -26,7 +26,7 @@ web-to-obsidian -------- URL công khai, capture yếu --------> Tavily Extract
         ^
         |
 obsidian-clip-beautifier
-(cấu hình template, Linter và CSS có phạm vi)
+(cấu hình Linter và CSS có phạm vi; chuẩn bị template Web Clipper chưa kích hoạt)
 ```
 
 ## Thành phần của repo
@@ -56,6 +56,7 @@ docs/
 - Một vault Obsidian local.
 - Python 3.10 trở lên cho công cụ thu thập có chống trùng lặp.
 - Không bắt buộc: Tavily API key để trích xuất trang công khai.
+- Không bắt buộc và đang ở mức thử nghiệm: extension Obsidian Web Clipper chính thức để kiểm tra template fallback được cung cấp.
 
 ## Cài từ GitHub public
 
@@ -104,6 +105,27 @@ Repository cũng là package chỉ chứa skill theo định dạng Agent Plugin
 cho các trình tiêu thụ hỗ trợ manifest ở root. Chỉ public repository trên GitHub
 không tự động làm plugin xuất hiện trong Plugins Directory chung.
 
+### Lưu ý về cá nhân hóa và khả năng tương thích
+
+Sau khi clone repository, bạn có thể điều chỉnh metadata, giá trị mặc định, cấu
+trúc thư mục và template để phù hợp với nhu cầu cá nhân. Khi thay đổi metadata
+của plugin, hãy giữ `plugin.json` và `.codex-plugin/plugin.json` đồng bộ. Nếu tùy
+chỉnh metadata của source note, hãy giữ `source_id`, `source_url`,
+`canonical_url`, `canonicalization_version`, `source_url_redacted` và CSS class
+nền `web-clip`, trừ khi bạn đồng thời cập nhật hành vi helper, tài liệu schema và
+các bài kiểm thử liên quan.
+
+Hiện tại, `obsidian-clip-beautifier` hoạt động tương đối tốt khi kết hợp với skill
+`web-to-obsidian` được đóng gói trong plugin này. Khả năng tích hợp với extension
+Obsidian Web Clipper chính thức vẫn đang ở mức thử nghiệm và chưa đủ ổn định để
+được xem là một luồng được hỗ trợ đầy đủ. Hai phương thức capture tạo ra schema
+note khác nhau; hãy thử trên một note dùng để kiểm tra trước khi sử dụng thường
+xuyên hoặc chạy Linter hàng loạt.
+
+Mọi đề xuất cải tiến, phản hồi hoặc phát hiện về những điểm dự án còn chưa tốt
+đều được trân trọng đón nhận. Đây cũng là cơ hội để dự án và tác giả tiếp tục
+lắng nghe, học hỏi và hoàn thiện. ( •̀ .̫ •́ )✧
+
 ### Từng phần chạy ở đâu
 
 | Thành phần | Chạy tại | Trách nhiệm |
@@ -111,10 +133,11 @@ không tự động làm plugin xuất hiện trong Plugins Directory chung.
 | ChatGPT Browser Extension | Side chat của Chrome, Edge, Brave hoặc Vivaldi | Cung cấp tab hiện tại hoặc selection và khởi tạo yêu cầu lưu. |
 | `web-to-obsidian` | Task ChatGPT/Codex đang dùng plugin đã cài | Kiểm tra quyền riêng tư và permalink, chọn nội dung trình duyệt hoặc fallback công khai được phép, rồi gọi helper local. |
 | `save_capture.py` | Máy local | Chuẩn hóa và redact URL, phát hiện nội dung trùng, rồi ghi một source note vào vault local đã xác nhận. |
-| `obsidian-clip-beautifier` | Task ChatGPT Work local hoặc Codex local | Thiết lập hoặc kiểm tra template Web Clipper, rule Linter, CSS có phạm vi và bước chuẩn bị export tùy chọn. Không chạy skill này sau mỗi lần lưu. |
+| `obsidian-clip-beautifier` | Task ChatGPT Work local hoặc Codex local | Thiết lập hoặc kiểm tra rule Linter, CSS có phạm vi và bước chuẩn bị export tùy chọn. Helper chuẩn bị một template Web Clipper thử nghiệm chưa kích hoạt; việc import, cấu hình hoặc xác minh template đó cần yêu cầu rõ của người dùng. Không chạy skill này sau mỗi lần lưu. |
+| Obsidian Web Clipper chính thức | Extension trình duyệt | Luồng thử nghiệm không bắt buộc, sử dụng template fallback được cung cấp và tạo schema note đơn giản hơn. Extension không gọi hai skill được đóng gói. |
 | Obsidian | Ứng dụng desktop local | Hiển thị Markdown đã lưu và áp dụng hành vi Linter/CSS đã cấu hình. |
 
-Để có trải nghiệm tốt nhất, chạy `obsidian-clip-beautifier` một lần từ task local cho từng vault, sau đó dùng `web-to-obsidian` trong browser side chat cho việc lưu hằng ngày. Extension cung cấp ngữ cảnh trình duyệt; thao tác ghi file vẫn diễn ra trên máy local.
+Để có trải nghiệm tốt nhất, chạy `obsidian-clip-beautifier` một lần từ task local cho từng vault, sau đó dùng `web-to-obsidian` trong browser side chat cho việc lưu hằng ngày. ChatGPT Browser Extension cung cấp ngữ cảnh trình duyệt; thao tác ghi file vẫn diễn ra trên máy local.
 
 ## Cấu hình
 
@@ -149,7 +172,7 @@ Thiết lập lớp làm sạch và trình bày:
 
 ```text
 $obsidian-clip-beautifier
-Thiết lập và xác minh workflow Web Clipper, Linter và CSS có phạm vi trong vault Obsidian đã xác nhận của tôi.
+Thiết lập và xác minh Linter cùng CSS có phạm vi cho các note do web-to-obsidian tạo trong vault Obsidian đã xác nhận của tôi. Không cấu hình extension Obsidian Web Clipper chính thức trừ khi tôi yêu cầu rõ luồng thử nghiệm đó.
 ```
 
 ## Dùng trực tiếp công cụ phụ

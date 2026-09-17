@@ -26,7 +26,9 @@ Lưu bằng chứng không thay đổi cùng ngữ cảnh của người dùng. 
 
 ### `obsidian-clip-beautifier`
 
-Cấu hình và kiểm tra lớp định dạng và trình bày quanh Markdown đã thu thập: cài template Web Clipper và CSS snippet có phạm vi, kiểm tra rule của Linter, chuẩn bị bản export đã đánh bóng. Skill hoạt động trên các note đã thu thập, không tự lấy nội dung trình duyệt và không viết lại ngữ nghĩa của nguồn.
+Cấu hình và kiểm tra lớp định dạng và trình bày quanh Markdown đã thu thập: cài CSS snippet có phạm vi, kiểm tra rule của Linter, chuẩn bị bản export đã đánh bóng và đặt một asset template Web Clipper thử nghiệm ở trạng thái chưa kích hoạt. Việc import hoặc cấu hình template này vẫn là tùy chọn và cần ý định rõ ràng của người dùng. Skill hoạt động trên các note đã thu thập, không tự lấy nội dung trình duyệt và không viết lại ngữ nghĩa của nguồn.
+
+Nguồn tạo note được hỗ trợ chính cho lớp này là skill `web-to-obsidian` được đóng gói trong plugin. Template dành cho extension Obsidian Web Clipper chính thức chỉ là luồng tương thích thử nghiệm, tạo schema note nhỏ hơn và khác biệt; hiện chưa đủ ổn định để tuyên bố hành vi tương đương. Việc dùng chung CSS `web-clip` không mang lại các bảo đảm của capture helper về định danh, redaction, chống trùng, publish hay refresh.
 
 ### Properties, Bases và MOC
 

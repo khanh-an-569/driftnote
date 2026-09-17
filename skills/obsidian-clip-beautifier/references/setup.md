@@ -5,15 +5,21 @@ Use this reference when installing, repairing, or auditing the pipeline.
 ## Intended topology
 
 ```text
-Web page
-  -> Obsidian Web Clipper
+Web page or browser selection
+  -> web-to-obsidian (primary supported capture path)
   -> 00 Inbox/Web/*.md
   -> Obsidian Linter
   -> scoped web-clip CSS
   -> optional MD Beautify export
+
+Web page
+  -> official Obsidian Web Clipper (experimental compatibility path)
+  -> 00 Inbox/Web/*.md with a smaller, different metadata schema
 ```
 
 The first three stages change source Markdown. CSS changes only Obsidian rendering. MD Beautify creates a presentation copy for another editor and must not replace the canonical Markdown note.
+
+The bundled `web-to-obsidian` skill is the primary supported producer. The official Obsidian Web Clipper template is experimental and has not been stable enough to treat as an equivalent capture path. A successful template import proves only that the JSON was accepted; it does not prove schema parity, duplicate safety, URL redaction, or refresh behavior. Warn the user and validate a disposable test clip before routine use.
 
 ## Components
 
@@ -36,7 +42,9 @@ Use `scripts/prepare_clip_pipeline.py` in preview mode first. It plans these tar
 
 The helper requires an existing vault with `.obsidian`. `--apply` creates missing directories and files only. Identical files are reported as `unchanged`; differing files are reported as `conflict` and left untouched.
 
-## Import the Web Clipper template
+## Import the experimental Web Clipper template
+
+Follow this section only when the user explicitly requested the experimental official Web Clipper path. Otherwise leave the staged template asset inactive and skip every import, configuration, and extension test below.
 
 In the browser extension:
 
@@ -47,6 +55,8 @@ In the browser extension:
 5. Clip a public test article and confirm the output path and properties before using it routinely.
 
 The supplied template deliberately has no triggers so it can act as a manually selected fallback. Site-specific selectors and Interpreter prompts are separate customizations; do not add them unless requested.
+
+Do not describe a note created by this extension as equivalent to a `web-to-obsidian` source note. The fallback template intentionally uses a smaller property set and does not provide the helper's canonical URL identity, sensitive-URL redaction, duplicate lock, no-clobber publication, or bounded refresh guarantees.
 
 ## Configure Linter safely
 

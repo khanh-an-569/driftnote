@@ -12,6 +12,8 @@ Use this reference for daily use, bounded cleanup, batch linting, visual checks,
 
 Formatting is not semantic processing. Do not summarize, delete source passages, invent metadata, or mark a note `processed` merely because Linter ran.
 
+This lifecycle describes the primary supported `web-to-obsidian` path. Notes created by the official Obsidian Web Clipper extension use a different, smaller schema and belong to an experimental compatibility path. Inspect one disposable extension-created note before applying cleanup or linting rules to more files; do not assume the capture helper's identity, redaction, duplicate, or refresh guarantees apply to it.
+
 ## Batch linting
 
 Before the first batch:

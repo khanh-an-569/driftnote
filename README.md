@@ -13,7 +13,7 @@ Bản tiếng Việt đầy đủ được duy trì song song trong `README.vi.m
 Capture and presentation are different jobs. This repository keeps them separate:
 
 1. `web-to-obsidian` saves a traceable source note quickly.
-2. `obsidian-clip-beautifier` configures a clean capture template, conservative Markdown formatting, and scoped visual styling.
+2. `obsidian-clip-beautifier` configures conservative Markdown formatting and scoped visual styling, and stages an inactive experimental Web Clipper template asset.
 
 Raw source content is preserved. Duplicate URLs are skipped. Tavily is a public-web fallback, not a way to bypass login or paywalls.
 
@@ -28,7 +28,7 @@ web-to-obsidian -------- public URL with weak capture ------> Tavily Extract
         ^
         |
 obsidian-clip-beautifier
-(configures the template, Linter, and scoped CSS)
+(configures Linter and scoped CSS; stages an inactive Web Clipper template)
 ```
 
 ## Repository contents
@@ -58,6 +58,7 @@ repo bundles exactly two skills.
 - A local Obsidian vault.
 - Python 3.10 or newer for the duplicate-safe capture helper.
 - Optional: a Tavily API key for extracting public pages.
+- Optional and experimental: the official Obsidian Web Clipper extension for testing the supplied fallback template.
 
 ## Install from public GitHub
 
@@ -106,6 +107,26 @@ The repository is also a portable skills-only package for consumers that support
 the Agent Plugins root manifest. Publishing this repository on GitHub does not by
 itself list it in the universal Plugins Directory.
 
+### Personalization and compatibility notice
+
+After cloning the repository, you may adapt metadata, defaults, folder layout,
+and templates to suit your own workflow. Keep `plugin.json` and
+`.codex-plugin/plugin.json` synchronized when changing plugin metadata. When
+changing source-note metadata, preserve `source_id`, `source_url`,
+`canonical_url`, `canonicalization_version`, `source_url_redacted`, and the base
+`web-clip` CSS class unless you also update the corresponding helper behavior,
+schema documentation, and tests.
+
+At present, `obsidian-clip-beautifier` works reasonably well with the bundled
+`web-to-obsidian` skill. Its integration with the official Obsidian Web Clipper
+browser extension remains experimental and is not stable enough to be treated as
+a fully supported path. The two capture paths produce different note schemas;
+test the extension with a disposable note before relying on it or batch-linting
+its output.
+
+Improvements, feedback, and reports of rough edges are warmly welcome. They are
+an opportunity for this project and its maintainer to keep learning. ( •̀ .̫ •́ )✧
+
 ### Where each part runs
 
 | Part | Runs in | Responsibility |
@@ -113,10 +134,11 @@ itself list it in the universal Plugins Directory.
 | ChatGPT browser extension | Chrome, Edge, Brave, or Vivaldi side chat | Supplies the current tab or selected text and starts the capture request. |
 | `web-to-obsidian` | The ChatGPT/Codex task using the installed plugin | Applies privacy and permalink checks, chooses browser content or an allowed public fallback, and invokes the local helper. |
 | `save_capture.py` | The local machine | Canonicalizes and redacts the URL, detects duplicates, and writes one source note into the confirmed local vault. |
-| `obsidian-clip-beautifier` | A local ChatGPT Work or Codex task | Sets up or audits the Web Clipper template, Linter rules, scoped CSS, and optional export preparation. It is not run for every capture. |
+| `obsidian-clip-beautifier` | A local ChatGPT Work or Codex task | Sets up or audits Linter rules, scoped CSS, and optional export preparation. The helper stages an inactive experimental Web Clipper template, but importing, configuring, or verifying it requires an explicit request. It is not run for every capture. |
+| Official Obsidian Web Clipper | The browser extension | Optional experimental path that consumes the supplied fallback template and creates a simpler note schema. It does not invoke either bundled skill. |
 | Obsidian | The local desktop app | Renders the saved Markdown and applies the configured Linter/CSS behavior. |
 
-For the best experience, run `obsidian-clip-beautifier` once from a local task for each vault, then use `web-to-obsidian` from browser side chat for daily capture. The extension provides browser context; file writing remains local.
+For the best experience, run `obsidian-clip-beautifier` once from a local task for each vault, then use `web-to-obsidian` from browser side chat for daily capture. The ChatGPT browser extension provides browser context; file writing remains local.
 
 ## Configure
 
@@ -151,7 +173,7 @@ Set up the formatting and presentation layer:
 
 ```text
 $obsidian-clip-beautifier
-Set up and verify the safe Web Clipper, Linter, and scoped CSS workflow in my confirmed Obsidian vault.
+Set up and verify safe Linter and scoped CSS for notes created by web-to-obsidian in my confirmed Obsidian vault. Do not configure the official Obsidian Web Clipper extension unless I explicitly request the experimental path.
 ```
 
 ## Use the helper directly
