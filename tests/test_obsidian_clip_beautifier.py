@@ -77,12 +77,24 @@ class ObsidianClipBeautifierTests(unittest.TestCase):
     def test_apply_never_overwrites_a_conflicting_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             vault = self.make_vault(Path(temporary))
-            target = vault / ".obsidian" / "snippets" / "obsidian-clip-beautifier.css"
+            path_alias = vault / "path-alias"
+            path_alias.mkdir()
+            target = (
+                path_alias
+                / ".."
+                / ".obsidian"
+                / "snippets"
+                / "obsidian-clip-beautifier.css"
+            )
             target.parent.mkdir(parents=True)
             target.write_text("/* user customization */\n", encoding="utf-8")
 
             result = MODULE.prepare(vault, apply=True)
-            css_item = next(item for item in result["files"] if item["path"] == str(target))
+            css_item = next(
+                item
+                for item in result["files"]
+                if item["path"] == str(target.resolve())
+            )
             self.assertEqual(css_item["status"], "conflict")
             self.assertEqual(target.read_text(encoding="utf-8"), "/* user customization */\n")
 
