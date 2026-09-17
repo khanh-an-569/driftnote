@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "web-to-obsidian",
   "version": "0.4.0",
   "description": "Capture browser sources into a local Obsidian vault and configure safe formatting for the resulting web clips.",

@@ -34,10 +34,13 @@ obsidian-clip-beautifier
 ## Repository contents
 
 ```text
+plugin.json
 .codex-plugin/plugin.json
 skills/
   web-to-obsidian/
   obsidian-clip-beautifier/
+scripts/
+  check_no_secrets.py
 vault-starter/
   Home.md
   Web Inbox.base
@@ -45,7 +48,9 @@ tests/
 docs/
 ```
 
-The repo is packaged as a Codex plugin and each skill can also be installed independently.
+The root `plugin.json` is the portable Agent Plugins manifest. The
+`.codex-plugin/plugin.json` compatibility manifest is kept in sync for Codex. The
+repo bundles exactly two skills.
 
 ## Requirements
 
@@ -54,16 +59,64 @@ The repo is packaged as a Codex plugin and each skill can also be installed inde
 - Python 3.10 or newer for the duplicate-safe capture helper.
 - Optional: a Tavily API key for extracting public pages.
 
-## Install the skills manually
+## Install from public GitHub
 
-From PowerShell in this repository:
+Clone the public repository, then open the clone as a local Codex project:
 
 ```powershell
-Copy-Item -Recurse -Force .\skills\web-to-obsidian "$env:USERPROFILE\.codex\skills\web-to-obsidian"
-Copy-Item -Recurse -Force .\skills\obsidian-clip-beautifier "$env:USERPROFILE\.codex\skills\obsidian-clip-beautifier"
+git clone https://github.com/khanh-an-569/web-to-obsidian.git
+Set-Location .\web-to-obsidian
 ```
 
-Start a new local ChatGPT Work or Codex task after installation so the skills are discovered.
+In that Codex task, invoke `$plugin-creator` with:
+
+```text
+Register this repository as my personal plugin named web-to-obsidian.
+Keep both bundled skills, create or update the personal marketplace entry,
+validate the package, and do not copy .env files or secrets.
+```
+
+The supported personal-plugin flow uses:
+
+```text
+Development source
+  <this repository>
+
+Installed plugin
+  %USERPROFILE%\plugins\web-to-obsidian
+
+Personal marketplace
+  %USERPROFILE%\.agents\plugins\marketplace.json
+```
+
+The installed plugin bundles exactly:
+
+- `web-to-obsidian` for browser capture and local vault writes.
+- `obsidian-clip-beautifier` for one-time setup, auditing, and maintenance of the formatting layer.
+
+Install or refresh the registered plugin with:
+
+```powershell
+codex plugin add web-to-obsidian@personal
+```
+
+Refresh ChatGPT and start a new chat before testing so the desktop app and browser extension pick up the installed plugin.
+
+The repository is also a portable skills-only package for consumers that support
+the Agent Plugins root manifest. Publishing this repository on GitHub does not by
+itself list it in the universal Plugins Directory.
+
+### Where each part runs
+
+| Part | Runs in | Responsibility |
+|---|---|---|
+| ChatGPT browser extension | Chrome, Edge, Brave, or Vivaldi side chat | Supplies the current tab or selected text and starts the capture request. |
+| `web-to-obsidian` | The ChatGPT/Codex task using the installed plugin | Applies privacy and permalink checks, chooses browser content or an allowed public fallback, and invokes the local helper. |
+| `save_capture.py` | The local machine | Canonicalizes and redacts the URL, detects duplicates, and writes one source note into the confirmed local vault. |
+| `obsidian-clip-beautifier` | A local ChatGPT Work or Codex task | Sets up or audits the Web Clipper template, Linter rules, scoped CSS, and optional export preparation. It is not run for every capture. |
+| Obsidian | The local desktop app | Renders the saved Markdown and applies the configured Linter/CSS behavior. |
+
+For the best experience, run `obsidian-clip-beautifier` once from a local task for each vault, then use `web-to-obsidian` from browser side chat for daily capture. The extension provides browser context; file writing remains local.
 
 ## Configure
 
@@ -90,7 +143,7 @@ Why I am saving it: it may help my retrieval project.
 Use my selection if present. Use Tavily only if this is a public page and the browser capture is incomplete.
 ```
 
-In ChatGPT side chat, invoke a skill with `@`. From a Codex task, use `$web-to-obsidian` and mention `@Chrome` or the open tab when browser context is needed.
+In ChatGPT side chat, select the installed plugin or invoke a skill with `@`. From a Codex task, use `$web-to-obsidian` and mention `@Chrome` or the open tab when browser context is needed.
 
 For selected text, highlight the passage first or use **Ask ChatGPT** from the browser context menu.
 
@@ -138,11 +191,17 @@ See [Architecture](docs/architecture.md) and [Security and privacy](docs/securit
 ## Validate
 
 ```powershell
+python .\scripts\check_no_secrets.py --root .
 python -m unittest discover -s tests -v
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-clip-beautifier
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
+
+The secret scanner checks tracked and non-ignored files that could be published.
+It reports only file, line, and rule names; it never prints the matched value.
+It is a high-confidence safety check, not a substitute for reviewing Git history
+or rotating any credential that may previously have been committed.
 
 ## License
 

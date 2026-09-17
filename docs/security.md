@@ -35,7 +35,10 @@ Preserve reasonable excerpts and source attribution. For songs, videos, and podc
 
 Before every release:
 
-1. Search the repository for `tvly-`, tokens, credentials, personal vault paths, cookies, and captured private content.
+1. Run `python scripts/check_no_secrets.py --root .` to inspect tracked and non-ignored publishable files.
 2. Run tests and the validator for every skill.
 3. Review examples for real personal data.
-4. Rotate any key that may have appeared in Git history or screenshots.
+4. Review Git history separately; rotate any key that may have appeared there or in screenshots.
+
+The scanner reports only file, line, and rule names. It intentionally does not
+echo a matched value and does not claim to detect every possible secret.

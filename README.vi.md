@@ -32,10 +32,13 @@ obsidian-clip-beautifier
 ## Thành phần của repo
 
 ```text
+plugin.json
 .codex-plugin/plugin.json
 skills/
   web-to-obsidian/
   obsidian-clip-beautifier/
+scripts/
+  check_no_secrets.py
 vault-starter/
   Home.md
   Web Inbox.base
@@ -43,7 +46,9 @@ tests/
 docs/
 ```
 
-Repo được đóng gói như một Codex plugin; mỗi skill cũng có thể được cài độc lập.
+`plugin.json` ở root là manifest Agent Plugins portable.
+`.codex-plugin/plugin.json` được giữ đồng bộ để tương thích với Codex. Repo chỉ
+đóng gói đúng hai skill.
 
 ## Yêu cầu
 
@@ -52,16 +57,64 @@ Repo được đóng gói như một Codex plugin; mỗi skill cũng có thể �
 - Python 3.10 trở lên cho công cụ thu thập có chống trùng lặp.
 - Không bắt buộc: Tavily API key để trích xuất trang công khai.
 
-## Cài skill thủ công
+## Cài từ GitHub public
 
-Từ PowerShell tại repo này:
+Clone repository public, sau đó mở bản clone như một project Codex local:
 
 ```powershell
-Copy-Item -Recurse -Force .\skills\web-to-obsidian "$env:USERPROFILE\.codex\skills\web-to-obsidian"
-Copy-Item -Recurse -Force .\skills\obsidian-clip-beautifier "$env:USERPROFILE\.codex\skills\obsidian-clip-beautifier"
+git clone https://github.com/khanh-an-569/web-to-obsidian.git
+Set-Location .\web-to-obsidian
 ```
 
-Sau khi cài đặt, hãy mở một task ChatGPT Work local hoặc Codex mới để hệ thống nhận diện skill.
+Trong task Codex đó, gọi `$plugin-creator` với nội dung:
+
+```text
+Đăng ký repository này thành personal plugin web-to-obsidian của tôi.
+Giữ cả hai skill, tạo hoặc cập nhật personal marketplace, kiểm tra package,
+và không sao chép file .env hoặc secret.
+```
+
+Luồng personal plugin được hỗ trợ sử dụng:
+
+```text
+Mã nguồn phát triển
+  <repository này>
+
+Bản plugin đã cài
+  %USERPROFILE%\plugins\web-to-obsidian
+
+Marketplace cá nhân
+  %USERPROFILE%\.agents\plugins\marketplace.json
+```
+
+Plugin đã cài chỉ đóng gói đúng hai skill:
+
+- `web-to-obsidian` dùng để lấy nội dung trình duyệt và ghi vào vault local.
+- `obsidian-clip-beautifier` dùng để thiết lập một lần, kiểm tra và bảo trì lớp định dạng.
+
+Cài hoặc làm mới plugin đã đăng ký bằng:
+
+```powershell
+codex plugin add web-to-obsidian@personal
+```
+
+Làm mới ChatGPT và mở chat mới trước khi kiểm tra để desktop app và browser extension nhận plugin vừa cài.
+
+Repository cũng là package chỉ chứa skill theo định dạng Agent Plugins portable
+cho các trình tiêu thụ hỗ trợ manifest ở root. Chỉ public repository trên GitHub
+không tự động làm plugin xuất hiện trong Plugins Directory chung.
+
+### Từng phần chạy ở đâu
+
+| Thành phần | Chạy tại | Trách nhiệm |
+|---|---|---|
+| ChatGPT Browser Extension | Side chat của Chrome, Edge, Brave hoặc Vivaldi | Cung cấp tab hiện tại hoặc selection và khởi tạo yêu cầu lưu. |
+| `web-to-obsidian` | Task ChatGPT/Codex đang dùng plugin đã cài | Kiểm tra quyền riêng tư và permalink, chọn nội dung trình duyệt hoặc fallback công khai được phép, rồi gọi helper local. |
+| `save_capture.py` | Máy local | Chuẩn hóa và redact URL, phát hiện nội dung trùng, rồi ghi một source note vào vault local đã xác nhận. |
+| `obsidian-clip-beautifier` | Task ChatGPT Work local hoặc Codex local | Thiết lập hoặc kiểm tra template Web Clipper, rule Linter, CSS có phạm vi và bước chuẩn bị export tùy chọn. Không chạy skill này sau mỗi lần lưu. |
+| Obsidian | Ứng dụng desktop local | Hiển thị Markdown đã lưu và áp dụng hành vi Linter/CSS đã cấu hình. |
+
+Để có trải nghiệm tốt nhất, chạy `obsidian-clip-beautifier` một lần từ task local cho từng vault, sau đó dùng `web-to-obsidian` trong browser side chat cho việc lưu hằng ngày. Extension cung cấp ngữ cảnh trình duyệt; thao tác ghi file vẫn diễn ra trên máy local.
 
 ## Cấu hình
 
@@ -88,7 +141,7 @@ Lý do tôi lưu: nội dung có thể hữu ích cho dự án retrieval.
 Nếu có selection thì ưu tiên selection. Chỉ dùng Tavily nếu đây là trang công khai và nội dung lấy từ tab chưa đầy đủ.
 ```
 
-Trong ChatGPT side chat, gọi skill bằng `@`. Nếu thao tác từ task Codex, dùng `$web-to-obsidian` và mention `@Chrome` hoặc tab đang mở khi cần ngữ cảnh trình duyệt.
+Trong ChatGPT side chat, chọn plugin đã cài hoặc gọi skill bằng `@`. Nếu thao tác từ task Codex, dùng `$web-to-obsidian` và mention `@Chrome` hoặc tab đang mở khi cần ngữ cảnh trình duyệt.
 
 Với văn bản được chọn, hãy bôi đen đoạn cần lấy trước hoặc dùng **Ask ChatGPT** trong menu ngữ cảnh của trình duyệt.
 
@@ -136,11 +189,17 @@ Xem [Kiến trúc](docs/architecture.vi.md) và [Bảo mật và quyền riêng 
 ## Kiểm tra
 
 ```powershell
+python .\scripts\check_no_secrets.py --root .
 python -m unittest discover -s tests -v
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-clip-beautifier
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
+
+Scanner kiểm tra các file đã được track và file không bị Git ignore có thể được
+publish. Kết quả chỉ chứa file, số dòng và tên rule; scanner không in giá trị đã
+khớp. Đây là lớp kiểm tra độ tin cậy cao, không thay thế việc rà lịch sử Git hoặc
+thu hồi khóa từng bị commit trước đây.
 
 ## Giấy phép
 

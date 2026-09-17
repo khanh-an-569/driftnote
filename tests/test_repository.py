@@ -40,6 +40,20 @@ class RepositoryTests(unittest.TestCase):
             )
             self.assertIn(f"${skill_name}", ui["interface"]["default_prompt"])
 
+    def test_portable_manifest_matches_codex_compatibility_manifest(self) -> None:
+        portable_path = ROOT / "plugin.json"
+        self.assertTrue(portable_path.is_file(), "portable plugin.json is missing")
+        portable = json.loads(portable_path.read_text(encoding="utf-8"))
+        compatibility = json.loads(
+            (ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(
+            portable.pop("$schema"),
+            "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        )
+        self.assertEqual(portable, compatibility)
+
     def test_architecture_docs_list_every_skill(self) -> None:
         skill_names = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
         self.assertTrue(skill_names)
@@ -52,6 +66,23 @@ class RepositoryTests(unittest.TestCase):
                     text,
                     f"{doc_name} is missing a component section for `{skill_name}`",
                 )
+
+    def test_plugin_interface_matches_the_installed_user_experience(self) -> None:
+        manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        interface = manifest["interface"]
+        prompts = interface["defaultPrompt"]
+
+        self.assertLessEqual(len(prompts), 3)
+        self.assertTrue(all(prompt and len(prompt) <= 128 for prompt in prompts))
+        self.assertEqual(
+            set(interface["capabilities"]),
+            {
+                "Browser context",
+                "Local vault write",
+                "Public web extraction",
+                "Vault formatting setup",
+            },
+        )
 
     def test_yaml_and_base_files_parse(self) -> None:
         paths = [

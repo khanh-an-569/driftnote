@@ -35,7 +35,10 @@ Giữ trích đoạn ở mức hợp lý và ghi rõ nguồn. Với bài hát, v
 
 Trước mỗi bản phát hành:
 
-1. Tìm `tvly-`, token, thông tin xác thực, đường dẫn vault cá nhân, cookie và nội dung riêng tư đã thu thập trong repo.
+1. Chạy `python scripts/check_no_secrets.py --root .` để kiểm tra file đã được track và file không bị Git ignore có thể được publish.
 2. Chạy test và trình xác thực cho từng skill.
 3. Kiểm tra ví dụ để loại bỏ dữ liệu cá nhân thật.
-4. Thu hồi và tạo lại mọi khóa có thể đã xuất hiện trong lịch sử Git hoặc ảnh chụp màn hình.
+4. Rà lịch sử Git riêng; thu hồi và tạo lại mọi khóa có thể đã xuất hiện ở đó hoặc trong ảnh chụp màn hình.
+
+Scanner chỉ báo file, số dòng và tên rule. Công cụ chủ động không in giá trị đã
+khớp và không tuyên bố phát hiện được mọi loại secret.
