@@ -904,7 +904,13 @@ def resolve_vault(vault_argument: str | None, *, workspace: Path | None = None) 
 
 
 def _normalized_url_parts(value: str) -> tuple[urllib.parse.SplitResult, str, str]:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise CaptureError("The source URL contains invalid characters.")
+    if "\\" in value:
+        raise CaptureError("The source URL contains invalid characters.")
     raw = value.strip()
+    if any(char in raw for char in ' <>'):
+        raise CaptureError("The source URL contains invalid characters.")
     try:
         parsed = urllib.parse.urlsplit(raw)
         port = parsed.port
@@ -1334,6 +1340,20 @@ def _normalize_cssclasses(values: Iterable[str]) -> list[str]:
     return cssclasses
 
 
+def markdown_destination(url: str) -> str:
+    """Protect Markdown syntax while preserving URL reserved characters."""
+    if any(char in url for char in '()&'):
+        return '<' + url.replace('\\', '\\\\').replace('&', '&amp;') + '>'
+    return url
+
+
+def parse_markdown_destination(destination: str) -> str:
+    """Decode angle destinations while preserving legacy raw callouts."""
+    if destination.startswith('<') and destination.endswith('>'):
+        return html_lib.unescape(destination[1:-1].replace('\\\\', '\\'))
+    return destination
+
+
 def _render_note(
     *,
     title: str,
@@ -1380,7 +1400,7 @@ def _render_note(
         lines.append(f"tavily_request_id: {_yaml_string(tavily_request_id)}")
     lines.extend(_yaml_list("tags", tags))
     lines.extend(_yaml_list("topics", topics))
-    lines.extend(["---", "", f"# {title}", "", "> [!info] Nguồn", f"> [Mở liên kết gốc]({source_url})"])
+    lines.extend(["---", "", f"# {title}", "", "> [!info] Nguồn", f"> [Mở liên kết gốc]({markdown_destination(source_url)})"])
 
     if why:
         lines.extend(["", "## Vì sao tôi lưu", "", why])

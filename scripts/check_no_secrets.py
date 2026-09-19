@@ -21,7 +21,7 @@ RULES = (
     ),
     (
         "personal-windows-user-path",
-        re.compile(r"\b[A-Za-z]:[\\/]+Users[\\/]+[^<%\\/\r\n]+[\\/]", re.IGNORECASE),
+        re.compile(r"\b[A-Za-z]:[\\/]+Users[\\/]+[^<>%\\/\s\"'`,;:{}]+", re.IGNORECASE),
     ),
 )
 
