@@ -67,7 +67,7 @@ def _load_note(path: Path) -> NoteAudit | None:
         if fields.get(field):
             raw_observations.append((field, fields[field]))
     raw_observations.extend(
-        ("source_callout", link_match.group("url"))
+        ("source_callout", save_capture.parse_markdown_destination(link_match.group("url")))
         for link_match in SOURCE_LINK_PATTERN.finditer(text)
     )
     if not raw_observations:
@@ -177,7 +177,7 @@ def _updated_text(note: NoteAudit) -> str:
     updated = note.text[: match.start("body")] + frontmatter + note.text[match.end("body") :]
 
     def replace_source_link(link_match: re.Match[str]) -> str:
-        return f"> [{link_match.group('label')}]({safe.source_url})"
+        return f"> [{link_match.group('label')}]({save_capture.markdown_destination(safe.source_url)})"
 
     return SOURCE_LINK_PATTERN.sub(replace_source_link, updated)
 
