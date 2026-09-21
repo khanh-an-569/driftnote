@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -294,6 +295,59 @@ class DocumentAssemblyTests(unittest.TestCase):
         )
         rect = next(el for el in document["elements"] if el["id"] == "n1")
         self.assertTrue(rect["link"].startswith("obsidian://open?"))
+
+
+class PublishTests(unittest.TestCase):
+    def test_write_creates_a_new_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "diagram.excalidraw"
+            status = generate_excalidraw.write_excalidraw_file({"type": "excalidraw"}, target, regenerate=False)
+            self.assertEqual(status, "created")
+            self.assertTrue(target.exists())
+
+    def test_write_refuses_to_clobber_without_regenerate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "diagram.excalidraw"
+            generate_excalidraw.write_excalidraw_file({"type": "excalidraw"}, target, regenerate=False)
+            with self.assertRaises(generate_excalidraw.MindmapError):
+                generate_excalidraw.write_excalidraw_file({"type": "excalidraw"}, target, regenerate=False)
+
+    def test_write_with_regenerate_overwrites_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "diagram.excalidraw"
+            generate_excalidraw.write_excalidraw_file({"version": 1}, target, regenerate=False)
+            status = generate_excalidraw.write_excalidraw_file({"version": 2}, target, regenerate=True)
+            self.assertEqual(status, "regenerated")
+            self.assertIn('"version": 2', target.read_text(encoding="utf-8"))
+
+    def test_append_diagram_link_adds_a_new_section(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            note = Path(temp_dir) / "note.md"
+            note.write_text("# Title\n\nBody text.\n", encoding="utf-8")
+            changed = generate_excalidraw.append_diagram_link(note, "note.excalidraw")
+            self.assertTrue(changed)
+            text = note.read_text(encoding="utf-8")
+            self.assertIn("## Sơ đồ Excalidraw", text)
+            self.assertIn("![[note.excalidraw]]", text)
+
+    def test_append_diagram_link_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            note = Path(temp_dir) / "note.md"
+            note.write_text("# Title\n\nBody text.\n", encoding="utf-8")
+            generate_excalidraw.append_diagram_link(note, "note.excalidraw")
+            first_text = note.read_text(encoding="utf-8")
+            changed_again = generate_excalidraw.append_diagram_link(note, "note.excalidraw")
+            self.assertFalse(changed_again)
+            self.assertEqual(note.read_text(encoding="utf-8"), first_text)
+
+    def test_append_diagram_link_never_touches_existing_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            note = Path(temp_dir) / "note.md"
+            original = "---\nsource_id: abc123\n---\n\n# Title\n\n## Ghi chú của tôi\n\nMy note.\n"
+            note.write_text(original, encoding="utf-8")
+            generate_excalidraw.append_diagram_link(note, "note.excalidraw")
+            text = note.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith(original))
 
 
 if __name__ == "__main__":

@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import tempfile
 import urllib.parse
 import zlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -398,3 +402,85 @@ def build_excalidraw_document(
         "appState": {"gridSize": None, "viewBackgroundColor": "#ffffff"},
         "files": {},
     }
+
+
+def write_excalidraw_file(document: dict[str, Any], target_path: Path, *, regenerate: bool) -> str:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(document, ensure_ascii=False, indent=2)
+
+    if target_path.exists() and not regenerate:
+        raise MindmapError(f"{target_path} already exists. Pass --regenerate to overwrite it.")
+
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=target_path.parent,
+            prefix=f".{target_path.stem}-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+
+        if target_path.exists():
+            os.replace(temp_path, target_path)
+            temp_path = None
+            return "regenerated"
+
+        try:
+            os.link(temp_path, target_path)
+        except FileExistsError as exc:
+            raise MindmapError(
+                f"{target_path} already exists. Pass --regenerate to overwrite it."
+            ) from exc
+        return "created"
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+
+def _atomic_replace_text(path: Path, text: str) -> None:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=path.parent,
+            prefix=f".{path.stem}-append-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+
+EXCALIDRAW_SECTION_HEADING = "## Sơ đồ Excalidraw"
+
+
+def append_diagram_link(note_path: Path, diagram_filename: str) -> bool:
+    text = note_path.read_text(encoding="utf-8")
+    embed = f"![[{diagram_filename}]]"
+    if embed in text:
+        return False
+
+    separator = "" if text.endswith("\n") else "\n"
+    if EXCALIDRAW_SECTION_HEADING in text:
+        addition = f"\n{embed}\n"
+    else:
+        addition = f"{separator}\n{EXCALIDRAW_SECTION_HEADING}\n{embed}\n"
+
+    _atomic_replace_text(note_path, text + addition)
+    return True
