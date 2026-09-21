@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -363,6 +364,120 @@ class PublishTests(unittest.TestCase):
             generate_excalidraw.append_diagram_link(note, "note.excalidraw")
             text = note.read_text(encoding="utf-8")
             self.assertTrue(text.startswith(original))
+
+
+class CliTests(unittest.TestCase):
+    def make_vault_with_note(self, root: Path) -> tuple[Path, Path]:
+        vault = root / "Vault"
+        note_dir = vault / "10 Sources"
+        note_dir.mkdir(parents=True)
+        note_path = note_dir / "test-note.md"
+        note_path.write_text("# Test Note\n\nSome content.\n", encoding="utf-8")
+        return vault, note_path
+
+    def make_outline_file(self, root: Path, source_note_path: str) -> Path:
+        outline_path = root / "outline.json"
+        outline_path.write_text(
+            json.dumps(
+                {
+                    "title": "Test Note",
+                    "source_note_path": source_note_path,
+                    "layout": "tree",
+                    "long_content_strategy": "condense",
+                    "nodes": [
+                        {
+                            "id": "n1",
+                            "text": "Main idea",
+                            "action": "full",
+                            "source_anchor": None,
+                            "children": [],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return outline_path
+
+    def test_resolve_vault_requires_an_existing_directory(self) -> None:
+        with self.assertRaises(generate_excalidraw.MindmapError):
+            generate_excalidraw.resolve_vault("Z:/does/not/exist")
+
+    def test_run_creates_diagram_and_links_the_note(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, note_path = self.make_vault_with_note(root)
+            outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
+
+            args = generate_excalidraw.build_parser().parse_args(
+                ["--outline-file", str(outline_path), "--vault", str(vault)]
+            )
+            result = generate_excalidraw.run(args)
+
+            self.assertEqual(result["status"], "created")
+            self.assertTrue(Path(result["path"]).exists())
+            self.assertTrue(result["linked_from_note"])
+            self.assertIn("![[test-note.excalidraw]]", note_path.read_text(encoding="utf-8"))
+
+    def test_main_reports_errors_as_json_on_stderr(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            outline_path = root / "missing-fields.json"
+            outline_path.write_text("{}", encoding="utf-8")
+            exit_code = generate_excalidraw.main(
+                ["--outline-file", str(outline_path), "--vault", str(root)]
+            )
+            self.assertEqual(exit_code, 1)
+
+    def test_run_uses_output_dir_from_an_explicit_config_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, _note_path = self.make_vault_with_note(root)
+            outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
+            config_path = root / "web-to-obsidian.yaml"
+            config_path.write_text(
+                'vault_root: "unused"\nexcalidraw_output_dir: "20 Knowledge/Excalidraw"\n',
+                encoding="utf-8",
+            )
+
+            args = generate_excalidraw.build_parser().parse_args(
+                [
+                    "--outline-file",
+                    str(outline_path),
+                    "--vault",
+                    str(vault),
+                    "--config-file",
+                    str(config_path),
+                ]
+            )
+            result = generate_excalidraw.run(args)
+
+            expected_path = vault / "20 Knowledge" / "Excalidraw" / "test-note.excalidraw"
+            self.assertEqual(Path(result["path"]), expected_path)
+            self.assertTrue(expected_path.exists())
+
+    def test_run_ignores_config_file_when_output_dir_is_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, _note_path = self.make_vault_with_note(root)
+            outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
+            config_path = root / "web-to-obsidian.yaml"
+            config_path.write_text('excalidraw_output_dir: "should-not-be-used"\n', encoding="utf-8")
+
+            args = generate_excalidraw.build_parser().parse_args(
+                [
+                    "--outline-file",
+                    str(outline_path),
+                    "--vault",
+                    str(vault),
+                    "--config-file",
+                    str(config_path),
+                    "--output-dir",
+                    "explicit-dir",
+                ]
+            )
+            result = generate_excalidraw.run(args)
+            self.assertEqual(Path(result["path"]), vault / "explicit-dir" / "test-note.excalidraw")
 
 
 if __name__ == "__main__":

@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
+import re
+import sys
 import tempfile
 import urllib.parse
 import zlib
@@ -488,3 +491,123 @@ def append_diagram_link(note_path: Path, diagram_filename: str) -> bool:
 
     _atomic_replace_text(note_path, text + addition)
     return True
+
+
+def resolve_vault(vault_argument: str | None) -> Path:
+    candidate = (
+        vault_argument
+        or os.environ.get("WEB_TO_OBSIDIAN_VAULT_PATH")
+        or os.environ.get("OBSIDIAN_VAULT_PATH")
+    )
+    if not candidate:
+        raise MindmapError(
+            "Could not resolve the Obsidian vault. Pass --vault, or set "
+            "WEB_TO_OBSIDIAN_VAULT_PATH / OBSIDIAN_VAULT_PATH."
+        )
+    vault = Path(candidate).expanduser().resolve()
+    if not vault.is_dir():
+        raise MindmapError(f"Vault directory does not exist: {vault}")
+    return vault
+
+
+def _config_value(config_path: Path, key: str) -> str | None:
+    if not config_path.is_file():
+        return None
+    pattern = re.compile(rf'^\s*{re.escape(key)}\s*:\s*"?([^"\n]+?)"?\s*$', re.MULTILINE)
+    match = pattern.search(config_path.read_text(encoding="utf-8"))
+    return match.group(1).strip() if match else None
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Generate a brainstorm-style Excalidraw diagram from an outline JSON file."
+    )
+    parser.add_argument("--outline-file", required=True, help="Path to the outline JSON file.")
+    parser.add_argument(
+        "--vault",
+        help="Obsidian vault root. Defaults to WEB_TO_OBSIDIAN_VAULT_PATH or OBSIDIAN_VAULT_PATH.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        help=(
+            "Directory (relative to the vault) for the .excalidraw file. Defaults to "
+            "'excalidraw_output_dir' from --config-file, or the source note's folder."
+        ),
+    )
+    parser.add_argument(
+        "--config-file",
+        help=(
+            "Path to web-to-obsidian.yaml to read an 'excalidraw_output_dir' default from. "
+            "Optional; no config file is read when omitted."
+        ),
+    )
+    parser.add_argument(
+        "--export-dir",
+        help="Additional standalone directory to also write a copy of the .excalidraw file.",
+    )
+    parser.add_argument(
+        "--regenerate", action="store_true", help="Overwrite an existing .excalidraw file for this note."
+    )
+    parser.add_argument(
+        "--no-link-back",
+        action="store_true",
+        help="Skip appending the diagram embed link to the source note.",
+    )
+    return parser
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    outline_data = json.loads(Path(args.outline_file).read_text(encoding="utf-8"))
+    outline = validate_outline(outline_data)
+
+    vault = resolve_vault(args.vault)
+    note_path = (vault / outline.source_note_path).resolve()
+    note_path.relative_to(vault)
+    if not note_path.is_file():
+        raise MindmapError(f"Source note does not exist: {note_path}")
+
+    positions = (
+        compute_radial_layout(outline) if outline.layout == "radial" else compute_tree_layout(outline)
+    )
+    document = build_excalidraw_document(outline, positions, vault_name=vault.name)
+
+    output_dir_value = args.output_dir
+    if not output_dir_value and args.config_file:
+        output_dir_value = _config_value(Path(args.config_file), "excalidraw_output_dir")
+    output_dir = (vault / output_dir_value) if output_dir_value else note_path.parent
+    diagram_filename = f"{note_path.stem}.excalidraw"
+    target_path = output_dir / diagram_filename
+
+    status = write_excalidraw_file(document, target_path, regenerate=args.regenerate)
+
+    linked = False
+    if not args.no_link_back:
+        linked = append_diagram_link(note_path, diagram_filename)
+
+    exported_to = None
+    if args.export_dir:
+        export_path = Path(args.export_dir).expanduser().resolve() / diagram_filename
+        write_excalidraw_file(document, export_path, regenerate=True)
+        exported_to = str(export_path)
+
+    return {
+        "status": status,
+        "path": str(target_path),
+        "linked_from_note": linked,
+        "exported_to": exported_to,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        result = run(args)
+    except (MindmapError, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
