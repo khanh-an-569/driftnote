@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -131,3 +132,72 @@ def validate_outline(data: dict[str, Any]) -> ValidatedOutline:
         long_content_strategy=strategy,
         nodes=nodes,
     )
+
+
+NODE_WIDTH = 220
+NODE_HEIGHT = 70
+SIBLING_GAP = 30
+LEVEL_GAP = 260
+RADIUS_STEP = 260
+
+
+@dataclass
+class NodePosition:
+    x: float
+    y: float
+    width: float = NODE_WIDTH
+    height: float = NODE_HEIGHT
+
+
+def compute_tree_layout(outline: ValidatedOutline) -> dict[str, NodePosition]:
+    positions: dict[str, NodePosition] = {}
+    next_row = [0.0]
+
+    def place(node: OutlineNode) -> float:
+        if not node.children:
+            y = next_row[0]
+            next_row[0] += NODE_HEIGHT + SIBLING_GAP
+        else:
+            child_ys = [place(child) for child in node.children]
+            y = sum(child_ys) / len(child_ys)
+        x = (node.depth - 1) * (NODE_WIDTH + LEVEL_GAP)
+        positions[node.id] = NodePosition(x=x, y=y)
+        return y
+
+    root_ys = [place(node) for node in outline.nodes]
+    root_y = sum(root_ys) / len(root_ys)
+    positions["__root__"] = NodePosition(x=-(NODE_WIDTH + LEVEL_GAP), y=root_y)
+    return positions
+
+
+def _leaf_count(node: OutlineNode) -> int:
+    if not node.children:
+        return 1
+    return sum(_leaf_count(child) for child in node.children)
+
+
+def compute_radial_layout(outline: ValidatedOutline) -> dict[str, NodePosition]:
+    positions: dict[str, NodePosition] = {"__root__": NodePosition(x=0.0, y=0.0)}
+    total_leaves = sum(_leaf_count(node) for node in outline.nodes)
+    two_pi = 2 * math.pi
+
+    def place(node: OutlineNode, start_angle: float, span: float) -> None:
+        angle = start_angle + span / 2
+        radius = node.depth * RADIUS_STEP
+        positions[node.id] = NodePosition(x=radius * math.cos(angle), y=radius * math.sin(angle))
+
+        if node.children:
+            child_total = sum(_leaf_count(child) for child in node.children)
+            cursor = start_angle
+            for child in node.children:
+                child_span = span * (_leaf_count(child) / child_total)
+                place(child, cursor, child_span)
+                cursor += child_span
+
+    cursor = 0.0
+    for node in outline.nodes:
+        node_span = two_pi * (_leaf_count(node) / total_leaves)
+        place(node, cursor, node_span)
+        cursor += node_span
+
+    return positions

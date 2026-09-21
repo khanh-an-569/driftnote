@@ -127,5 +127,75 @@ class ValidateOutlineTests(unittest.TestCase):
             generate_excalidraw.validate_outline(make_outline(layout="circular"))
 
 
+def make_two_level_outline() -> dict:
+    return make_outline(
+        layout="tree",
+        nodes=[
+            {
+                "id": "a",
+                "text": "Branch A",
+                "action": "full",
+                "source_anchor": None,
+                "children": [
+                    {"id": "a1", "text": "A1", "action": "full", "source_anchor": None, "children": []},
+                    {"id": "a2", "text": "A2", "action": "full", "source_anchor": None, "children": []},
+                ],
+            },
+            {
+                "id": "b",
+                "text": "Branch B",
+                "action": "full",
+                "source_anchor": None,
+                "children": [],
+            },
+        ],
+    )
+
+
+class TreeLayoutTests(unittest.TestCase):
+    def test_root_and_all_nodes_get_positions(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        self.assertIn("__root__", positions)
+        for node_id in ("a", "a1", "a2", "b"):
+            self.assertIn(node_id, positions)
+
+    def test_depth_increases_x_monotonically(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        self.assertLess(positions["__root__"].x, positions["a"].x)
+        self.assertLess(positions["a"].x, positions["a1"].x)
+
+    def test_siblings_never_share_the_same_y(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        self.assertNotEqual(positions["a1"].y, positions["a2"].y)
+        self.assertNotEqual(positions["a"].y, positions["b"].y)
+
+
+class RadialLayoutTests(unittest.TestCase):
+    def test_root_is_at_the_origin(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_radial_layout(outline)
+        self.assertEqual((positions["__root__"].x, positions["__root__"].y), (0.0, 0.0))
+
+    def test_radius_grows_with_depth(self) -> None:
+        import math
+
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_radial_layout(outline)
+        radius_a = math.hypot(positions["a"].x, positions["a"].y)
+        radius_a1 = math.hypot(positions["a1"].x, positions["a1"].y)
+        self.assertLess(radius_a, radius_a1)
+
+    def test_siblings_land_at_distinct_angles(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_radial_layout(outline)
+        self.assertNotEqual(
+            (positions["a1"].x, positions["a1"].y),
+            (positions["a2"].x, positions["a2"].y),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
