@@ -590,7 +590,7 @@ class CliTests(unittest.TestCase):
             )
             result = generate_excalidraw.run(args)
 
-            expected_path = vault / "20 Knowledge" / "Excalidraw" / "test-note.excalidraw"
+            expected_path = vault.resolve() / "20 Knowledge" / "Excalidraw" / "test-note.excalidraw"
             self.assertEqual(Path(result["path"]), expected_path)
             self.assertTrue(expected_path.exists())
 
@@ -615,7 +615,9 @@ class CliTests(unittest.TestCase):
                 ]
             )
             result = generate_excalidraw.run(args)
-            self.assertEqual(Path(result["path"]), vault / "explicit-dir" / "test-note.excalidraw")
+            self.assertEqual(
+                Path(result["path"]), vault.resolve() / "explicit-dir" / "test-note.excalidraw"
+            )
 
     def test_run_rejects_a_source_note_outside_the_vault(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
