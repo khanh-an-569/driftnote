@@ -945,14 +945,14 @@ def resolve_vault(vault_argument: str | None, *, workspace: Path | None = None) 
         env_vault = os.environ.get(env_name, "").strip()
         if env_vault:
             return env_vault
-    config_path = (workspace or Path.cwd()) / "web-to-obsidian.yaml"
+    config_path = (workspace or Path.cwd()) / "driftnote.yaml"
     config_vault = _vault_from_yaml(config_path.resolve())
     if config_vault:
         return config_vault
     raise CaptureError(
         "Obsidian vault is not configured. Use --vault, set "
         "WEB_TO_OBSIDIAN_VAULT_PATH (or OBSIDIAN_VAULT_PATH) in .env, or add "
-        "vault_root to web-to-obsidian.yaml."
+        "vault_root to driftnote.yaml."
     )
 
 
@@ -1863,7 +1863,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--vault",
         help=(
             "Vault path; otherwise WEB_TO_OBSIDIAN_VAULT_PATH, "
-            "OBSIDIAN_VAULT_PATH, or web-to-obsidian.yaml is used"
+            "OBSIDIAN_VAULT_PATH, or driftnote.yaml is used"
         ),
     )
     parser.add_argument(

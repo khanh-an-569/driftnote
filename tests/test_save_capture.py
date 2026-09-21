@@ -533,7 +533,7 @@ Actual personal note.
     def test_resolves_vault_from_cli_env_then_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
-            (workspace / "web-to-obsidian.yaml").write_text(
+            (workspace / "driftnote.yaml").write_text(
                 'vault_root: "E:/yaml-vault"\n', encoding="utf-8"
             )
             with mock.patch.dict(save_capture.os.environ, {}, clear=True):

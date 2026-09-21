@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-web-to-obsidian.yaml
+driftnote.yaml
 
 # Local skill installation backups and capture workspaces
 .skill-backups/

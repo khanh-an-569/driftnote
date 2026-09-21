@@ -1,4 +1,4 @@
-# Copy this file to web-to-obsidian.yaml and keep the real file uncommitted.
+# Copy this file to driftnote.yaml and keep the real file uncommitted.
 vault_root: "D:/Notes/Second Brain"
 
 # Optional: where generated Excalidraw diagrams are written, relative to vault_root.

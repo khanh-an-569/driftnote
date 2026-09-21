@@ -1,6 +1,6 @@
-# Web to Obsidian
+# Driftnote
 
-[![CI](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml)
+[![CI](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml)
 
 Quy trình có thể truy ngược từ trình duyệt tới Obsidian: lấy nội dung trình duyệt bằng ChatGPT rồi làm sạch và trình bày Markdown trong Obsidian.
 
@@ -13,12 +13,12 @@ Quy trình có thể truy ngược từ trình duyệt tới Obsidian: lấy n�
 **Cài đặt:** clone repo rồi đăng ký thành plugin cho runtime bạn dùng — xem phần "Cài từ GitHub public" bên dưới để biết luồng Codex đầy đủ. Với Claude Code:
 
 ```powershell
-git clone https://github.com/khanh-an-569/web-to-obsidian.git
-claude plugin marketplace add .\web-to-obsidian
-claude plugin install web-to-obsidian@web-to-obsidian
+git clone https://github.com/khanh-an-569/driftnote.git
+claude plugin marketplace add .\driftnote
+claude plugin install driftnote@driftnote
 ```
 
-**Sử dụng:** mở trang trong trình duyệt, rồi trong chat gõ `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), hoặc `/web-to-obsidian:web-to-obsidian` (Claude Code) kèm yêu cầu muốn lưu. Xem phần "Sử dụng từ ChatGPT Browser Extension" bên dưới để biết ví dụ đầy đủ và cách cấu hình.
+**Sử dụng:** mở trang trong trình duyệt, rồi trong chat gõ `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), hoặc `/driftnote:web-to-obsidian` (Claude Code) kèm yêu cầu muốn lưu. Xem phần "Sử dụng từ ChatGPT Browser Extension" bên dưới để biết ví dụ đầy đủ và cách cấu hình.
 
 Mọi thứ bên dưới điểm này là tài liệu tham khảo đầy đủ — chi tiết thiết lập, mô hình quyền riêng tư, cấu hình, và cả ba skill.
 
@@ -84,14 +84,14 @@ gói ba skill: `web-to-obsidian` và `obsidian-clip-beautifier` đã ổn địn
 Clone repository public, sau đó mở bản clone như một project Codex local:
 
 ```powershell
-git clone https://github.com/khanh-an-569/web-to-obsidian.git
-Set-Location .\web-to-obsidian
+git clone https://github.com/khanh-an-569/driftnote.git
+Set-Location .\driftnote
 ```
 
 Trong task Codex đó, gọi `$plugin-creator` với nội dung:
 
 ```text
-Đăng ký repository này thành personal plugin web-to-obsidian của tôi.
+Đăng ký repository này thành personal plugin driftnote của tôi.
 Giữ tất cả skill đã đóng gói, tạo hoặc cập nhật personal marketplace, kiểm tra package,
 và không sao chép file .env hoặc secret.
 ```
@@ -103,7 +103,7 @@ Mã nguồn phát triển
   <repository này>
 
 Bản plugin đã cài
-  %USERPROFILE%\plugins\web-to-obsidian
+  %USERPROFILE%\plugins\driftnote
 
 Marketplace cá nhân
   %USERPROFILE%\.agents\plugins\marketplace.json
@@ -118,7 +118,7 @@ Plugin đã cài chỉ đóng gói đúng ba skill:
 Cài hoặc làm mới plugin đã đăng ký bằng:
 
 ```powershell
-codex plugin add web-to-obsidian@personal
+codex plugin add driftnote@personal
 ```
 
 Làm mới ChatGPT và mở chat mới trước khi kiểm tra để desktop app và browser extension nhận plugin vừa cài.
@@ -179,7 +179,7 @@ Copy-Item .\.env.example .\.env
 
 Dùng `.env` ở thư mục gốc repository làm cấu hình local trung tâm cho các helper chạy nền. Đặt `WEB_TO_OBSIDIAN_VAULT_PATH` cho skill này và chỉ dùng `OBSIDIAN_VAULT_PATH` như fallback tương thích dùng chung khi cần. Skill tương lai dùng vault khác nên có biến được namespace riêng, ví dụ `ANOTHER_SKILL_VAULT_PATH`. Helper capture kiểm tra `.env` của workspace trước, sau đó tự tìm file trung tâm này từ vị trí thật của mã nguồn; biến đã có trong tiến trình luôn được ưu tiên và `--env-file` vẫn là override rõ ràng. `.env` đã được Git bỏ qua. Không đặt khóa thật trong prompt, note, file skill, cấu hình được commit hoặc `.env.example`. Phải rotate mọi khóa từng xuất hiện trong log trước khi dùng lại.
 
-`web-to-obsidian.yaml` vẫn là cấu hình tùy chọn cho thư mục và mặc định capture. Thứ tự xác định vault là `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, biến cũ `OBSIDIAN_VAULT_PATH`, rồi `vault_root` trong YAML.
+`driftnote.yaml` vẫn là cấu hình tùy chọn cho thư mục và mặc định capture. Thứ tự xác định vault là `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, biến cũ `OBSIDIAN_VAULT_PATH`, rồi `vault_root` trong YAML.
 
 Bạn có thể sao chép nội dung thư mục `vault-starter` vào vault mới. Thư mục này cung cấp cấu trúc tối giản và một Obsidian Base với các view Inbox, Reading, Music và Processed.
 
