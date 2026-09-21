@@ -6,6 +6,24 @@ Quy trình có thể truy ngược từ trình duyệt tới Obsidian: lấy n�
 
 [English](README.md) | **Tiếng Việt**
 
+## Tóm tắt siêu ngắn
+
+**Làm gì:** lưu một trang web/tab trình duyệt thành source note Obsidian có thể truy ngược (`web-to-obsidian`), tuỳ chọn làm đẹp định dạng Markdown/CSS (`obsidian-clip-beautifier`), và tuỳ chọn biến note đã lưu thành sơ đồ Excalidraw kiểu brainstorm (`obsidian-excalidraw-mindmap`, *nguyên mẫu*).
+
+**Cài đặt:** clone repo rồi đăng ký thành plugin cho runtime bạn dùng — xem phần "Cài từ GitHub public" bên dưới để biết luồng Codex đầy đủ. Với Claude Code:
+
+```powershell
+git clone https://github.com/khanh-an-569/web-to-obsidian.git
+claude plugin marketplace add .\web-to-obsidian
+claude plugin install web-to-obsidian@web-to-obsidian
+```
+
+**Sử dụng:** mở trang trong trình duyệt, rồi trong chat gõ `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), hoặc `/web-to-obsidian:web-to-obsidian` (Claude Code) kèm yêu cầu muốn lưu. Xem phần "Sử dụng từ ChatGPT Browser Extension" bên dưới để biết ví dụ đầy đủ và cách cấu hình.
+
+Mọi thứ bên dưới điểm này là tài liệu tham khảo đầy đủ — chi tiết thiết lập, mô hình quyền riêng tư, cấu hình, và cả ba skill.
+
+---
+
 ## Vì sao nên dùng workflow này
 
 Việc thu thập và trình bày là hai công việc khác nhau. Repo này tách chúng thành hai giai đoạn:

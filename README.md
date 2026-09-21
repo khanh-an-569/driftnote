@@ -8,6 +8,24 @@ A traceable browser-to-Obsidian workflow for capturing browser content with Chat
 
 Bản tiếng Việt đầy đủ được duy trì song song trong `README.vi.md`.
 
+## TL;DR
+
+**What it does:** save a web page or browser tab into a traceable Obsidian note (`web-to-obsidian`), optionally polish its Markdown/CSS formatting (`obsidian-clip-beautifier`), and optionally turn a captured note into a brainstorm-style Excalidraw diagram (`obsidian-excalidraw-mindmap`, *prototype*).
+
+**Install:** clone the repo, then register it as a plugin for your runtime — see "Install from public GitHub" below for the full Codex flow. For Claude Code:
+
+```powershell
+git clone https://github.com/khanh-an-569/web-to-obsidian.git
+claude plugin marketplace add .\web-to-obsidian
+claude plugin install web-to-obsidian@web-to-obsidian
+```
+
+**Use:** open a page in your browser, then in chat send `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), or `/web-to-obsidian:web-to-obsidian` (Claude Code) with what you want saved. See "Use from the ChatGPT browser extension" below for full examples and configuration.
+
+Everything below this point is the full reference — setup details, privacy model, configuration, and all three skills.
+
+---
+
 ## Why this workflow
 
 Capture and presentation are different jobs. This repository keeps them separate:
