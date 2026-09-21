@@ -1,0 +1,10 @@
+{
+  "name": "web-to-obsidian",
+  "description": "Capture browser sources into a local Obsidian vault, configure safe formatting for the resulting web clips, and turn a captured note into a brainstorm-style Excalidraw diagram.",
+  "version": "0.5.0",
+  "author": { "name": "khanh-an-569" },
+  "homepage": "https://github.com/khanh-an-569/web-to-obsidian#readme",
+  "repository": "https://github.com/khanh-an-569/web-to-obsidian",
+  "license": "MIT",
+  "keywords": ["obsidian", "browser-extension", "web-capture", "tavily", "markdown", "excalidraw", "mindmap"]
+}
