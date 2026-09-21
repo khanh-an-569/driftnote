@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import math
+import urllib.parse
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -201,3 +203,159 @@ def compute_radial_layout(outline: ValidatedOutline) -> dict[str, NodePosition]:
         cursor += node_span
 
     return positions
+
+
+DEPTH_COLORS = [
+    ("#1e1e2e", "#ffffff"),
+    ("#ffd8a8", "#e8590c"),
+    ("#b2f2bb", "#2b8a3e"),
+    ("#a5d8ff", "#1864ab"),
+    ("#eebefa", "#862e9c"),
+    ("#ffc9c9", "#c92a2a"),
+]
+
+
+def _color_for_depth(depth: int) -> tuple[str, str]:
+    return DEPTH_COLORS[depth % len(DEPTH_COLORS)]
+
+
+def _stable_seed(value: str) -> int:
+    return zlib.crc32(value.encode("utf-8")) % 2_000_000_000 + 1
+
+
+def _edge_point(pos: NodePosition, toward: NodePosition) -> tuple[float, float]:
+    center_x, center_y = pos.x + pos.width / 2, pos.y + pos.height / 2
+    toward_x, toward_y = toward.x + toward.width / 2, toward.y + toward.height / 2
+    dx, dy = toward_x - center_x, toward_y - center_y
+    if dx == 0 and dy == 0:
+        return center_x, center_y
+    scale_x = (pos.width / 2) / abs(dx) if dx else math.inf
+    scale_y = (pos.height / 2) / abs(dy) if dy else math.inf
+    scale = min(scale_x, scale_y)
+    return center_x + dx * scale, center_y + dy * scale
+
+
+def build_rectangle(element_id: str, pos: NodePosition, *, depth: int, action: str) -> dict[str, Any]:
+    background, stroke = _color_for_depth(depth)
+    stroke_style = "solid"
+    if action == "link":
+        stroke_style = "dashed"
+    elif action == "manual":
+        stroke_style = "dotted"
+        background, stroke = "#f1f3f5", "#adb5bd"
+
+    return {
+        "type": "rectangle",
+        "id": element_id,
+        "x": pos.x,
+        "y": pos.y,
+        "width": pos.width,
+        "height": pos.height,
+        "angle": 0,
+        "strokeColor": stroke,
+        "backgroundColor": background,
+        "fillStyle": "hachure",
+        "strokeWidth": 2,
+        "strokeStyle": stroke_style,
+        "roughness": 2,
+        "opacity": 100,
+        "groupIds": [],
+        "frameId": None,
+        "roundness": {"type": 3},
+        "seed": _stable_seed(element_id),
+        "version": 1,
+        "versionNonce": _stable_seed(element_id + "-nonce"),
+        "isDeleted": False,
+        "boundElements": [{"id": f"{element_id}-text", "type": "text"}],
+        "updated": 1,
+        "link": None,
+        "locked": False,
+    }
+
+
+def build_text(element_id: str, container_id: str, pos: NodePosition, text: str) -> dict[str, Any]:
+    return {
+        "type": "text",
+        "id": element_id,
+        "x": pos.x + 8,
+        "y": pos.y + pos.height / 2 - 10,
+        "width": pos.width - 16,
+        "height": 20,
+        "angle": 0,
+        "strokeColor": "#1e1e2e",
+        "backgroundColor": "transparent",
+        "fillStyle": "hachure",
+        "strokeWidth": 2,
+        "strokeStyle": "solid",
+        "roughness": 2,
+        "opacity": 100,
+        "groupIds": [],
+        "frameId": None,
+        "roundness": None,
+        "seed": _stable_seed(element_id),
+        "version": 1,
+        "versionNonce": _stable_seed(element_id + "-nonce"),
+        "isDeleted": False,
+        "updated": 1,
+        "link": None,
+        "locked": False,
+        "text": text,
+        "fontSize": 16,
+        "fontFamily": 1,
+        "textAlign": "center",
+        "verticalAlign": "middle",
+        "containerId": container_id,
+        "originalText": text,
+        "lineHeight": 1.25,
+    }
+
+
+def build_arrow(
+    element_id: str, start_id: str, end_id: str, start_pos: NodePosition, end_pos: NodePosition
+) -> dict[str, Any]:
+    start_x, start_y = _edge_point(start_pos, end_pos)
+    end_x, end_y = _edge_point(end_pos, start_pos)
+
+    return {
+        "type": "arrow",
+        "id": element_id,
+        "x": start_x,
+        "y": start_y,
+        "width": end_x - start_x,
+        "height": end_y - start_y,
+        "angle": 0,
+        "strokeColor": "#495057",
+        "backgroundColor": "transparent",
+        "fillStyle": "hachure",
+        "strokeWidth": 2,
+        "strokeStyle": "solid",
+        "roughness": 2,
+        "opacity": 100,
+        "groupIds": [],
+        "frameId": None,
+        "roundness": {"type": 2},
+        "seed": _stable_seed(element_id),
+        "version": 1,
+        "versionNonce": _stable_seed(element_id + "-nonce"),
+        "isDeleted": False,
+        "boundElements": [],
+        "updated": 1,
+        "link": None,
+        "locked": False,
+        "points": [[0, 0], [end_x - start_x, end_y - start_y]],
+        "lastCommittedPoint": None,
+        "startBinding": {"elementId": start_id, "focus": 0, "gap": 4},
+        "endBinding": {"elementId": end_id, "focus": 0, "gap": 4},
+        "startArrowhead": None,
+        "endArrowhead": "triangle",
+    }
+
+
+def build_obsidian_uri(vault_name: str, note_relative_path: str, anchor: str | None) -> str:
+    file_value = note_relative_path
+    if file_value.endswith(".md"):
+        file_value = file_value[: -len(".md")]
+    if anchor:
+        file_value = f"{file_value}#{anchor}"
+    query = urllib.parse.urlencode({"vault": vault_name, "file": file_value})
+    return f"obsidian://open?{query}"

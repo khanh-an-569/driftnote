@@ -197,5 +197,60 @@ class RadialLayoutTests(unittest.TestCase):
         )
 
 
+class ElementBuilderTests(unittest.TestCase):
+    def test_rectangle_carries_depth_color_and_binds_its_text(self) -> None:
+        pos = generate_excalidraw.NodePosition(x=0, y=0)
+        rect = generate_excalidraw.build_rectangle("n1", pos, depth=1, action="full")
+        self.assertEqual(rect["type"], "rectangle")
+        self.assertEqual(rect["strokeStyle"], "solid")
+        self.assertEqual(rect["boundElements"], [{"id": "n1-text", "type": "text"}])
+
+    def test_link_action_uses_dashed_stroke(self) -> None:
+        pos = generate_excalidraw.NodePosition(x=0, y=0)
+        rect = generate_excalidraw.build_rectangle("n1", pos, depth=1, action="link")
+        self.assertEqual(rect["strokeStyle"], "dashed")
+
+    def test_manual_action_uses_dotted_muted_style(self) -> None:
+        pos = generate_excalidraw.NodePosition(x=0, y=0)
+        rect = generate_excalidraw.build_rectangle("n1", pos, depth=1, action="manual")
+        self.assertEqual(rect["strokeStyle"], "dotted")
+        self.assertEqual(rect["backgroundColor"], "#f1f3f5")
+
+    def test_text_is_bound_to_its_container(self) -> None:
+        pos = generate_excalidraw.NodePosition(x=0, y=0)
+        text_el = generate_excalidraw.build_text("n1-text", "n1", pos, "Hello")
+        self.assertEqual(text_el["type"], "text")
+        self.assertEqual(text_el["containerId"], "n1")
+        self.assertEqual(text_el["text"], "Hello")
+        self.assertEqual(text_el["fontFamily"], 1)
+
+    def test_arrow_binds_start_and_end_elements(self) -> None:
+        start = generate_excalidraw.NodePosition(x=0, y=0)
+        end = generate_excalidraw.NodePosition(x=500, y=0)
+        arrow = generate_excalidraw.build_arrow("root->n1", "root", "n1", start, end)
+        self.assertEqual(arrow["type"], "arrow")
+        self.assertEqual(arrow["startBinding"]["elementId"], "root")
+        self.assertEqual(arrow["endBinding"]["elementId"], "n1")
+        self.assertEqual(arrow["endArrowhead"], "triangle")
+
+    def test_seeds_are_stable_across_calls(self) -> None:
+        pos = generate_excalidraw.NodePosition(x=0, y=0)
+        first = generate_excalidraw.build_rectangle("n1", pos, depth=1, action="full")
+        second = generate_excalidraw.build_rectangle("n1", pos, depth=1, action="full")
+        self.assertEqual(first["seed"], second["seed"])
+
+    def test_obsidian_uri_encodes_vault_file_and_anchor(self) -> None:
+        uri = generate_excalidraw.build_obsidian_uri(
+            "Second Brain", "10 Sources/example.md", "some-heading"
+        )
+        self.assertTrue(uri.startswith("obsidian://open?"))
+        self.assertIn("vault=Second+Brain", uri)
+        self.assertIn("some-heading", uri)
+
+    def test_obsidian_uri_without_anchor_omits_the_fragment(self) -> None:
+        uri = generate_excalidraw.build_obsidian_uri("Second Brain", "10 Sources/example.md", None)
+        self.assertNotIn("%23", uri)
+
+
 if __name__ == "__main__":
     unittest.main()
