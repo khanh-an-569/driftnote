@@ -769,6 +769,59 @@ def _insert_toc_after_header(markdown: str, toc: str) -> str:
     return toc + "\n\n" + markdown
 
 
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_CODE_FENCE_PATTERN = re.compile(r"^```")
+
+
+def _extract_markdown_headings(content: str) -> list[tuple[int, str]]:
+    headings: list[tuple[int, str]] = []
+    in_code_fence = False
+    for line in content.splitlines():
+        if _CODE_FENCE_PATTERN.match(line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        match = _MARKDOWN_HEADING_PATTERN.match(line)
+        if match:
+            headings.append((len(match.group(1)), match.group(2).strip()))
+    return headings
+
+
+def _generate_toc_from_headings(content: str) -> str:
+    """Fallback TOC: synthesize one from the content's own headings.
+
+    Only runs when no native page TOC was already cloned into ``content``
+    and there are enough headings to make navigation useful.
+    """
+    if "[!toc]" in content:
+        return ""
+    headings = _extract_markdown_headings(content)
+    if len(headings) < 3:
+        return ""
+
+    lines: list[str] = []
+    stack: list[tuple[int, str]] = []
+    for level, text in headings:
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        ancestors = tuple(entry[1] for entry in stack)
+        path = ancestors + (text,)
+        stack.append((level, text))
+        destination = "#" + "#".join(_escape_wikilink(part) for part in path)
+        escaped_text = _escape_wikilink(text)
+        if len(path) == 1:
+            wikilink = f"[[{destination}]]"
+        else:
+            wikilink = f"[[{destination}|{escaped_text}]]"
+        depth = len(path) - 1
+        lines.append(f"{'  ' * depth}- {wikilink}")
+
+    toc_lines = ["> [!toc]- Table of contents"]
+    toc_lines.extend(f"> {line}" for line in lines)
+    return "\n".join(toc_lines)
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
@@ -892,19 +945,25 @@ def resolve_vault(vault_argument: str | None, *, workspace: Path | None = None) 
         env_vault = os.environ.get(env_name, "").strip()
         if env_vault:
             return env_vault
-    config_path = (workspace or Path.cwd()) / "web-to-obsidian.yaml"
+    config_path = (workspace or Path.cwd()) / "driftnote.yaml"
     config_vault = _vault_from_yaml(config_path.resolve())
     if config_vault:
         return config_vault
     raise CaptureError(
         "Obsidian vault is not configured. Use --vault, set "
         "WEB_TO_OBSIDIAN_VAULT_PATH (or OBSIDIAN_VAULT_PATH) in .env, or add "
-        "vault_root to web-to-obsidian.yaml."
+        "vault_root to driftnote.yaml."
     )
 
 
 def _normalized_url_parts(value: str) -> tuple[urllib.parse.SplitResult, str, str]:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise CaptureError("The source URL contains invalid characters.")
+    if "\\" in value:
+        raise CaptureError("The source URL contains invalid characters.")
     raw = value.strip()
+    if any(char in raw for char in ' <>'):
+        raise CaptureError("The source URL contains invalid characters.")
     try:
         parsed = urllib.parse.urlsplit(raw)
         port = parsed.port
@@ -1334,6 +1393,20 @@ def _normalize_cssclasses(values: Iterable[str]) -> list[str]:
     return cssclasses
 
 
+def markdown_destination(url: str) -> str:
+    """Protect Markdown syntax while preserving URL reserved characters."""
+    if any(char in url for char in '()&'):
+        return '<' + url.replace('\\', '\\\\').replace('&', '&amp;') + '>'
+    return url
+
+
+def parse_markdown_destination(destination: str) -> str:
+    """Decode angle destinations while preserving legacy raw callouts."""
+    if destination.startswith('<') and destination.endswith('>'):
+        return html_lib.unescape(destination[1:-1].replace('\\\\', '\\'))
+    return destination
+
+
 def _render_note(
     *,
     title: str,
@@ -1380,7 +1453,7 @@ def _render_note(
         lines.append(f"tavily_request_id: {_yaml_string(tavily_request_id)}")
     lines.extend(_yaml_list("tags", tags))
     lines.extend(_yaml_list("topics", topics))
-    lines.extend(["---", "", f"# {title}", "", "> [!info] Nguồn", f"> [Mở liên kết gốc]({source_url})"])
+    lines.extend(["---", "", f"# {title}", "", "> [!info] Nguồn", f"> [Mở liên kết gốc]({markdown_destination(source_url)})"])
 
     if why:
         lines.extend(["", "## Vì sao tôi lưu", "", why])
@@ -1617,6 +1690,8 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             if not tavily_depth and last_error:
                 warnings.append("Tavily extraction failed.")
 
+    content = _insert_toc_after_header(content, _generate_toc_from_headings(content))
+
     capture_method = args.capture_method
     if tavily_depth:
         if args.capture_method in {"chrome", "selection"} and had_browser_content:
@@ -1788,7 +1863,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--vault",
         help=(
             "Vault path; otherwise WEB_TO_OBSIDIAN_VAULT_PATH, "
-            "OBSIDIAN_VAULT_PATH, or web-to-obsidian.yaml is used"
+            "OBSIDIAN_VAULT_PATH, or driftnote.yaml is used"
         ),
     )
     parser.add_argument(

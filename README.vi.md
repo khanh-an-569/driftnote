@@ -1,10 +1,28 @@
-# Web to Obsidian
+# Driftnote
 
-[![CI](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml)
+[![CI](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml)
 
 Quy trình có thể truy ngược từ trình duyệt tới Obsidian: lấy nội dung trình duyệt bằng ChatGPT rồi làm sạch và trình bày Markdown trong Obsidian.
 
 [English](README.md) | **Tiếng Việt**
+
+## Tóm tắt siêu ngắn
+
+**Làm gì:** lưu một trang web/tab trình duyệt thành source note Obsidian có thể truy ngược (`web-to-obsidian`), tuỳ chọn làm đẹp định dạng Markdown/CSS (`obsidian-clip-beautifier`), và tuỳ chọn biến note đã lưu thành sơ đồ Excalidraw kiểu brainstorm (`obsidian-excalidraw-mindmap`, *nguyên mẫu*).
+
+**Cài đặt:** clone repo rồi đăng ký thành plugin cho runtime bạn dùng — xem phần "Cài từ GitHub public" bên dưới để biết luồng Codex đầy đủ. Với Claude Code:
+
+```powershell
+git clone https://github.com/khanh-an-569/driftnote.git
+claude plugin marketplace add .\driftnote
+claude plugin install driftnote@driftnote
+```
+
+**Sử dụng:** mở trang trong trình duyệt, rồi trong chat gõ `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), hoặc `/driftnote:web-to-obsidian` (Claude Code) kèm yêu cầu muốn lưu. Xem phần "Sử dụng từ ChatGPT Browser Extension" bên dưới để biết ví dụ đầy đủ và cách cấu hình.
+
+Mọi thứ bên dưới điểm này là tài liệu tham khảo đầy đủ — chi tiết thiết lập, mô hình quyền riêng tư, cấu hình, và cả ba skill.
+
+---
 
 ## Vì sao nên dùng workflow này
 
@@ -12,6 +30,7 @@ Việc thu thập và trình bày là hai công việc khác nhau. Repo này tá
 
 1. `web-to-obsidian` lưu nhanh một source note có thể truy ngược.
 2. `obsidian-clip-beautifier` cấu hình định dạng Markdown thận trọng và CSS chỉ áp dụng cho web clip, đồng thời chuẩn bị một asset template Web Clipper thử nghiệm chưa được kích hoạt.
+3. `obsidian-excalidraw-mindmap` *(nguyên mẫu / demo — đang trong quá trình phát triển, chưa ổn định)* biến một note đã capture sẵn thành sơ đồ Excalidraw kiểu brainstorm.
 
 Nội dung nguồn thô được giữ nguyên. URL trùng được bỏ qua. Tavily chỉ là fallback cho web công khai, không phải cách vượt đăng nhập hoặc paywall.
 
@@ -37,6 +56,7 @@ plugin.json
 skills/
   web-to-obsidian/
   obsidian-clip-beautifier/
+  obsidian-excalidraw-mindmap/  # nguyên mẫu / demo, đang trong quá trình phát triển
 scripts/
   check_no_secrets.py
 vault-starter/
@@ -47,8 +67,9 @@ docs/
 ```
 
 `plugin.json` ở root là manifest Agent Plugins portable.
-`.codex-plugin/plugin.json` được giữ đồng bộ để tương thích với Codex. Repo chỉ
-đóng gói đúng hai skill.
+`.codex-plugin/plugin.json` được giữ đồng bộ để tương thích với Codex. Repo đóng
+gói ba skill: `web-to-obsidian` và `obsidian-clip-beautifier` đã ổn định, còn
+`obsidian-excalidraw-mindmap` đang ở giai đoạn nguyên mẫu/demo sớm.
 
 ## Yêu cầu
 
@@ -63,15 +84,15 @@ docs/
 Clone repository public, sau đó mở bản clone như một project Codex local:
 
 ```powershell
-git clone https://github.com/khanh-an-569/web-to-obsidian.git
-Set-Location .\web-to-obsidian
+git clone https://github.com/khanh-an-569/driftnote.git
+Set-Location .\driftnote
 ```
 
 Trong task Codex đó, gọi `$plugin-creator` với nội dung:
 
 ```text
-Đăng ký repository này thành personal plugin web-to-obsidian của tôi.
-Giữ cả hai skill, tạo hoặc cập nhật personal marketplace, kiểm tra package,
+Đăng ký repository này thành personal plugin driftnote của tôi.
+Giữ tất cả skill đã đóng gói, tạo hoặc cập nhật personal marketplace, kiểm tra package,
 và không sao chép file .env hoặc secret.
 ```
 
@@ -82,21 +103,22 @@ Mã nguồn phát triển
   <repository này>
 
 Bản plugin đã cài
-  %USERPROFILE%\plugins\web-to-obsidian
+  %USERPROFILE%\plugins\driftnote
 
 Marketplace cá nhân
   %USERPROFILE%\.agents\plugins\marketplace.json
 ```
 
-Plugin đã cài chỉ đóng gói đúng hai skill:
+Plugin đã cài chỉ đóng gói đúng ba skill:
 
 - `web-to-obsidian` dùng để lấy nội dung trình duyệt và ghi vào vault local.
 - `obsidian-clip-beautifier` dùng để thiết lập một lần, kiểm tra và bảo trì lớp định dạng.
+- `obsidian-excalidraw-mindmap` *(nguyên mẫu / demo)* dùng để biến note đã capture thành sơ đồ Excalidraw kiểu brainstorm — vẫn đang trong quá trình phát triển, chưa ổn định.
 
 Cài hoặc làm mới plugin đã đăng ký bằng:
 
 ```powershell
-codex plugin add web-to-obsidian@personal
+codex plugin add driftnote@personal
 ```
 
 Làm mới ChatGPT và mở chat mới trước khi kiểm tra để desktop app và browser extension nhận plugin vừa cài.
@@ -122,6 +144,13 @@ Obsidian Web Clipper chính thức vẫn đang ở mức thử nghiệm và chư
 note khác nhau; hãy thử trên một note dùng để kiểm tra trước khi sử dụng thường
 xuyên hoặc chạy Linter hàng loạt.
 
+`obsidian-excalidraw-mindmap` là bổ sung mới nhất và là **nguyên mẫu / demo**
+đúng nghĩa: pipeline chuyển outline thành sơ đồ, thuật toán bố cục và style
+Excalidraw đã được triển khai và có test, nhưng skill vẫn đang trong quá trình
+phát triển và chưa được dùng thực tế đủ lâu để gọi là ổn định. Hãy lường trước
+còn nhiều điểm chưa hoàn thiện, một số trường hợp biên chưa được xử lý, và khả
+năng thay đổi hành vi trước khi skill ổn định hẳn.
+
 Mọi đề xuất cải tiến, phản hồi hoặc phát hiện về những điểm dự án còn chưa tốt
 đều được trân trọng đón nhận. Đây cũng là cơ hội để dự án và tác giả tiếp tục
 lắng nghe, học hỏi và hoàn thiện. ( •̀ .̫ •́ )✧
@@ -134,7 +163,8 @@ lắng nghe, học hỏi và hoàn thiện. ( •̀ .̫ •́ )✧
 | `web-to-obsidian` | Task ChatGPT/Codex đang dùng plugin đã cài | Kiểm tra quyền riêng tư và permalink, chọn nội dung trình duyệt hoặc fallback công khai được phép, rồi gọi helper local. |
 | `save_capture.py` | Máy local | Chuẩn hóa và redact URL, phát hiện nội dung trùng, rồi ghi một source note vào vault local đã xác nhận. |
 | `obsidian-clip-beautifier` | Task ChatGPT Work local hoặc Codex local | Thiết lập hoặc kiểm tra rule Linter, CSS có phạm vi và bước chuẩn bị export tùy chọn. Helper chuẩn bị một template Web Clipper thử nghiệm chưa kích hoạt; việc import, cấu hình hoặc xác minh template đó cần yêu cầu rõ của người dùng. Không chạy skill này sau mỗi lần lưu. |
-| Obsidian Web Clipper chính thức | Extension trình duyệt | Luồng thử nghiệm không bắt buộc, sử dụng template fallback được cung cấp và tạo schema note đơn giản hơn. Extension không gọi hai skill được đóng gói. |
+| `obsidian-excalidraw-mindmap` *(nguyên mẫu / demo)* | Task ChatGPT Work local hoặc Codex local, hoặc phiên Claude Code đã cài plugin | Biến note đã capture thành sơ đồ Excalidraw kiểu brainstorm (layout radial hoặc tree). Vẫn đang phát triển, chưa ổn định. |
+| Obsidian Web Clipper chính thức | Extension trình duyệt | Luồng thử nghiệm không bắt buộc, sử dụng template fallback được cung cấp và tạo schema note đơn giản hơn. Extension không gọi bất kỳ skill nào được đóng gói. |
 | Obsidian | Ứng dụng desktop local | Hiển thị Markdown đã lưu và áp dụng hành vi Linter/CSS đã cấu hình. |
 
 Để có trải nghiệm tốt nhất, chạy `obsidian-clip-beautifier` một lần từ task local cho từng vault, sau đó dùng `web-to-obsidian` trong browser side chat cho việc lưu hằng ngày. ChatGPT Browser Extension cung cấp ngữ cảnh trình duyệt; thao tác ghi file vẫn diễn ra trên máy local.
@@ -149,7 +179,7 @@ Copy-Item .\.env.example .\.env
 
 Dùng `.env` ở thư mục gốc repository làm cấu hình local trung tâm cho các helper chạy nền. Đặt `WEB_TO_OBSIDIAN_VAULT_PATH` cho skill này và chỉ dùng `OBSIDIAN_VAULT_PATH` như fallback tương thích dùng chung khi cần. Skill tương lai dùng vault khác nên có biến được namespace riêng, ví dụ `ANOTHER_SKILL_VAULT_PATH`. Helper capture kiểm tra `.env` của workspace trước, sau đó tự tìm file trung tâm này từ vị trí thật của mã nguồn; biến đã có trong tiến trình luôn được ưu tiên và `--env-file` vẫn là override rõ ràng. `.env` đã được Git bỏ qua. Không đặt khóa thật trong prompt, note, file skill, cấu hình được commit hoặc `.env.example`. Phải rotate mọi khóa từng xuất hiện trong log trước khi dùng lại.
 
-`web-to-obsidian.yaml` vẫn là cấu hình tùy chọn cho thư mục và mặc định capture. Thứ tự xác định vault là `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, biến cũ `OBSIDIAN_VAULT_PATH`, rồi `vault_root` trong YAML.
+`driftnote.yaml` vẫn là cấu hình tùy chọn cho thư mục và mặc định capture. Thứ tự xác định vault là `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, biến cũ `OBSIDIAN_VAULT_PATH`, rồi `vault_root` trong YAML.
 
 Bạn có thể sao chép nội dung thư mục `vault-starter` vào vault mới. Thư mục này cung cấp cấu trúc tối giản và một Obsidian Base với các view Inbox, Reading, Music và Processed.
 
@@ -216,6 +246,7 @@ python .\scripts\check_no_secrets.py --root .
 python -m unittest discover -s tests -v
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-clip-beautifier
+python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-excalidraw-mindmap
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
 

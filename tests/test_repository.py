@@ -14,13 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 class RepositoryTests(unittest.TestCase):
     def test_manifest_and_skill_metadata(self) -> None:
         manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["name"], "web-to-obsidian")
+        self.assertEqual(manifest["name"], "driftnote")
         self.assertRegex(manifest["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(manifest["skills"], "./skills/")
 
         expected_skill_names = (
             "web-to-obsidian",
             "obsidian-clip-beautifier",
+            "obsidian-excalidraw-mindmap",
         )
         actual_skill_names = tuple(
             sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
@@ -81,15 +82,17 @@ class RepositoryTests(unittest.TestCase):
                 "Local vault write",
                 "Public web extraction",
                 "Vault formatting setup",
+                "Diagram export",
             },
         )
 
     def test_yaml_and_base_files_parse(self) -> None:
         paths = [
-            ROOT / "web-to-obsidian.example.yaml",
+            ROOT / "driftnote.example.yaml",
             ROOT / "vault-starter" / "Web Inbox.base",
             ROOT / "skills" / "web-to-obsidian" / "agents" / "openai.yaml",
             ROOT / "skills" / "obsidian-clip-beautifier" / "agents" / "openai.yaml",
+            ROOT / "skills" / "obsidian-excalidraw-mindmap" / "agents" / "openai.yaml",
         ]
         parsed = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in paths]
         base = parsed[1]
@@ -104,7 +107,7 @@ class RepositoryTests(unittest.TestCase):
             re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
         ]
         ignored_parts = {".git", "__pycache__"}
-        ignored_names = {".env", "web-to-obsidian.yaml"}
+        ignored_names = {".env", "driftnote.yaml"}
         for path in ROOT.rglob("*"):
             if (
                 not path.is_file()

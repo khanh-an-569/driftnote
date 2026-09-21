@@ -1,0 +1,12 @@
+{
+  "name": "driftnote",
+  "description": "Personal marketplace for the driftnote Claude Code plugin.",
+  "owner": { "name": "khanh-an-569" },
+  "plugins": [
+    {
+      "name": "driftnote",
+      "source": "./",
+      "description": "Capture web sources into Obsidian, format the resulting clips, and turn notes into brainstorm-style Excalidraw diagrams."
+    }
+  ]
+}

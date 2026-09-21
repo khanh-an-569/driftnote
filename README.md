@@ -1,6 +1,6 @@
-# Web to Obsidian
+# Driftnote
 
-[![CI](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml)
+[![CI](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml)
 
 A traceable browser-to-Obsidian workflow for capturing browser content with ChatGPT and polishing the resulting Markdown in Obsidian.
 
@@ -8,12 +8,31 @@ A traceable browser-to-Obsidian workflow for capturing browser content with Chat
 
 Bản tiếng Việt đầy đủ được duy trì song song trong `README.vi.md`.
 
+## TL;DR
+
+**What it does:** save a web page or browser tab into a traceable Obsidian note (`web-to-obsidian`), optionally polish its Markdown/CSS formatting (`obsidian-clip-beautifier`), and optionally turn a captured note into a brainstorm-style Excalidraw diagram (`obsidian-excalidraw-mindmap`, *prototype*).
+
+**Install:** clone the repo, then register it as a plugin for your runtime — see "Install from public GitHub" below for the full Codex flow. For Claude Code:
+
+```powershell
+git clone https://github.com/khanh-an-569/driftnote.git
+claude plugin marketplace add .\driftnote
+claude plugin install driftnote@driftnote
+```
+
+**Use:** open a page in your browser, then in chat send `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), or `/driftnote:web-to-obsidian` (Claude Code) with what you want saved. See "Use from the ChatGPT browser extension" below for full examples and configuration.
+
+Everything below this point is the full reference — setup details, privacy model, configuration, and all three skills.
+
+---
+
 ## Why this workflow
 
 Capture and presentation are different jobs. This repository keeps them separate:
 
 1. `web-to-obsidian` saves a traceable source note quickly.
 2. `obsidian-clip-beautifier` configures conservative Markdown formatting and scoped visual styling, and stages an inactive experimental Web Clipper template asset.
+3. `obsidian-excalidraw-mindmap` *(prototype / demo — under active development, not yet stable)* turns an already-captured note into a brainstorm-style Excalidraw diagram.
 
 Raw source content is preserved. Duplicate URLs are skipped. Tavily is a public-web fallback, not a way to bypass login or paywalls.
 
@@ -39,6 +58,7 @@ plugin.json
 skills/
   web-to-obsidian/
   obsidian-clip-beautifier/
+  obsidian-excalidraw-mindmap/  # prototype / demo, under active development
 scripts/
   check_no_secrets.py
 vault-starter/
@@ -50,7 +70,8 @@ docs/
 
 The root `plugin.json` is the portable Agent Plugins manifest. The
 `.codex-plugin/plugin.json` compatibility manifest is kept in sync for Codex. The
-repo bundles exactly two skills.
+repo bundles three skills: `web-to-obsidian` and `obsidian-clip-beautifier` are
+stable, and `obsidian-excalidraw-mindmap` is an early-stage prototype/demo.
 
 ## Requirements
 
@@ -65,15 +86,15 @@ repo bundles exactly two skills.
 Clone the public repository, then open the clone as a local Codex project:
 
 ```powershell
-git clone https://github.com/khanh-an-569/web-to-obsidian.git
-Set-Location .\web-to-obsidian
+git clone https://github.com/khanh-an-569/driftnote.git
+Set-Location .\driftnote
 ```
 
 In that Codex task, invoke `$plugin-creator` with:
 
 ```text
-Register this repository as my personal plugin named web-to-obsidian.
-Keep both bundled skills, create or update the personal marketplace entry,
+Register this repository as my personal plugin named driftnote.
+Keep all bundled skills, create or update the personal marketplace entry,
 validate the package, and do not copy .env files or secrets.
 ```
 
@@ -84,7 +105,7 @@ Development source
   <this repository>
 
 Installed plugin
-  %USERPROFILE%\plugins\web-to-obsidian
+  %USERPROFILE%\plugins\driftnote
 
 Personal marketplace
   %USERPROFILE%\.agents\plugins\marketplace.json
@@ -94,11 +115,12 @@ The installed plugin bundles exactly:
 
 - `web-to-obsidian` for browser capture and local vault writes.
 - `obsidian-clip-beautifier` for one-time setup, auditing, and maintenance of the formatting layer.
+- `obsidian-excalidraw-mindmap` *(prototype / demo)* for turning a captured note into a brainstorm-style Excalidraw diagram — still under active development and not yet stable.
 
 Install or refresh the registered plugin with:
 
 ```powershell
-codex plugin add web-to-obsidian@personal
+codex plugin add driftnote@personal
 ```
 
 Refresh ChatGPT and start a new chat before testing so the desktop app and browser extension pick up the installed plugin.
@@ -124,6 +146,13 @@ a fully supported path. The two capture paths produce different note schemas;
 test the extension with a disposable note before relying on it or batch-linting
 its output.
 
+`obsidian-excalidraw-mindmap` is a newer addition and is explicitly a
+**prototype / demo**: the outline-to-diagram pipeline, layout algorithms, and
+Excalidraw styling are implemented and tested, but the skill is still under
+active development and has not been used in production long enough to be
+called stable. Expect rough edges, incomplete coverage of edge cases, and
+possible breaking changes before it settles.
+
 Improvements, feedback, and reports of rough edges are warmly welcome. They are
 an opportunity for this project and its maintainer to keep learning. ( •̀ .̫ •́ )✧
 
@@ -135,7 +164,8 @@ an opportunity for this project and its maintainer to keep learning. ( •̀ .̫
 | `web-to-obsidian` | The ChatGPT/Codex task using the installed plugin | Applies privacy and permalink checks, chooses browser content or an allowed public fallback, and invokes the local helper. |
 | `save_capture.py` | The local machine | Canonicalizes and redacts the URL, detects duplicates, and writes one source note into the confirmed local vault. |
 | `obsidian-clip-beautifier` | A local ChatGPT Work or Codex task | Sets up or audits Linter rules, scoped CSS, and optional export preparation. The helper stages an inactive experimental Web Clipper template, but importing, configuring, or verifying it requires an explicit request. It is not run for every capture. |
-| Official Obsidian Web Clipper | The browser extension | Optional experimental path that consumes the supplied fallback template and creates a simpler note schema. It does not invoke either bundled skill. |
+| `obsidian-excalidraw-mindmap` *(prototype / demo)* | A local ChatGPT Work or Codex task, or a Claude Code session with the plugin installed | Turns an already-captured note into a brainstorm-style Excalidraw diagram (radial or tree layout). Still under active development; not yet stable. |
+| Official Obsidian Web Clipper | The browser extension | Optional experimental path that consumes the supplied fallback template and creates a simpler note schema. It does not invoke any bundled skill. |
 | Obsidian | The local desktop app | Renders the saved Markdown and applies the configured Linter/CSS behavior. |
 
 For the best experience, run `obsidian-clip-beautifier` once from a local task for each vault, then use `web-to-obsidian` from browser side chat for daily capture. The ChatGPT browser extension provides browser context; file writing remains local.
@@ -150,7 +180,7 @@ Copy-Item .\.env.example .\.env
 
 Use the repository-root `.env` as the central local configuration for background skill helpers. Set `WEB_TO_OBSIDIAN_VAULT_PATH` for this skill and optionally set `OBSIDIAN_VAULT_PATH` as a shared compatibility fallback. Future skills that need a different vault should use their own namespaced variable, such as `ANOTHER_SKILL_VAULT_PATH`. The capture helper checks a workspace `.env` first, then finds this central file from its resolved source location; variables already present in the process take precedence, and `--env-file` remains an explicit override. `.env` is ignored by Git. Never put a real key in a prompt, note, skill file, committed configuration, or `.env.example`. Rotate any key that has appeared in a log before using it again.
 
-`web-to-obsidian.yaml` remains optional for folder and capture defaults. Vault precedence is explicit `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, legacy `OBSIDIAN_VAULT_PATH`, then `vault_root` in the YAML file.
+`driftnote.yaml` remains optional for folder and capture defaults. Vault precedence is explicit `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, legacy `OBSIDIAN_VAULT_PATH`, then `vault_root` in the YAML file.
 
 Optionally copy the contents of `vault-starter` into a new vault. It provides a small folder layout and an Obsidian Base with Inbox, Reading, Music, and Processed views.
 
@@ -217,6 +247,7 @@ python .\scripts\check_no_secrets.py --root .
 python -m unittest discover -s tests -v
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-clip-beautifier
+python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-excalidraw-mindmap
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
 
