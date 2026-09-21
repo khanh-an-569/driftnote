@@ -11,15 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_no_secrets.py"
 
 
-class SecretScanTests(unittest.TestCase):
-    def run_scan(self, root: Path) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), "--root", str(root)],
-            capture_output=True,
-            check=False,
-            encoding="utf-8",
-        )
+def run_scan(root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root)],
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+    )
 
+
+class SecretScanTests(unittest.TestCase):
     def test_clean_tree_passes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -28,7 +29,7 @@ class SecretScanTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            result = self.run_scan(root)
+            result = run_scan(root)
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("No high-confidence secrets", result.stdout)
@@ -39,7 +40,7 @@ class SecretScanTests(unittest.TestCase):
             fake_token = "ghp_" + ("A" * 36)
             (root / "leaked.txt").write_text(fake_token, encoding="utf-8")
 
-            result = self.run_scan(root)
+            result = run_scan(root)
 
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("github-token", result.stdout)
@@ -53,7 +54,7 @@ class SecretScanTests(unittest.TestCase):
             personal_path = "C:" + "\\Users\\Alice\\Obsidian Vault"
             (root / "settings.txt").write_text(personal_path, encoding="utf-8")
 
-            result = self.run_scan(root)
+            result = run_scan(root)
 
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("personal-windows-user-path", result.stdout)
