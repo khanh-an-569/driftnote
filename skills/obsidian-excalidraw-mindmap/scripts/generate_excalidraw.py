@@ -359,3 +359,42 @@ def build_obsidian_uri(vault_name: str, note_relative_path: str, anchor: str | N
         file_value = f"{file_value}#{anchor}"
     query = urllib.parse.urlencode({"vault": vault_name, "file": file_value})
     return f"obsidian://open?{query}"
+
+
+EXCALIDRAW_TYPE = "excalidraw"
+EXCALIDRAW_VERSION = 2
+EXCALIDRAW_SOURCE = "https://github.com/khanh-an-569/web-to-obsidian"
+
+
+def build_excalidraw_document(
+    outline: ValidatedOutline, positions: dict[str, NodePosition], *, vault_name: str
+) -> dict[str, Any]:
+    elements: list[dict[str, Any]] = []
+
+    root_pos = positions["__root__"]
+    elements.append(build_rectangle("root", root_pos, depth=0, action="full"))
+    elements.append(build_text("root-text", "root", root_pos, outline.title))
+
+    def walk(node: OutlineNode, parent_id: str, parent_pos: NodePosition) -> None:
+        pos = positions[node.id]
+        elements.append(build_rectangle(node.id, pos, depth=node.depth, action=node.action))
+        elements.append(build_text(f"{node.id}-text", node.id, pos, node.text))
+        if node.action in ("condensed", "link"):
+            elements[-2]["link"] = build_obsidian_uri(
+                vault_name, outline.source_note_path, node.source_anchor
+            )
+        elements.append(build_arrow(f"{parent_id}->{node.id}", parent_id, node.id, parent_pos, pos))
+        for child in node.children:
+            walk(child, node.id, pos)
+
+    for node in outline.nodes:
+        walk(node, "root", root_pos)
+
+    return {
+        "type": EXCALIDRAW_TYPE,
+        "version": EXCALIDRAW_VERSION,
+        "source": EXCALIDRAW_SOURCE,
+        "elements": elements,
+        "appState": {"gridSize": None, "viewBackgroundColor": "#ffffff"},
+        "files": {},
+    }

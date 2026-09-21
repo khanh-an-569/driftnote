@@ -252,5 +252,49 @@ class ElementBuilderTests(unittest.TestCase):
         self.assertNotIn("%23", uri)
 
 
+class DocumentAssemblyTests(unittest.TestCase):
+    def test_document_has_the_excalidraw_envelope(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        document = generate_excalidraw.build_excalidraw_document(
+            outline, positions, vault_name="Second Brain"
+        )
+        self.assertEqual(document["type"], "excalidraw")
+        self.assertIn("elements", document)
+
+    def test_every_node_produces_a_rectangle_text_and_arrow(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        document = generate_excalidraw.build_excalidraw_document(
+            outline, positions, vault_name="Second Brain"
+        )
+        rect_ids = {el["id"] for el in document["elements"] if el["type"] == "rectangle"}
+        self.assertEqual(rect_ids, {"root", "a", "a1", "a2", "b"})
+        arrow_count = sum(1 for el in document["elements"] if el["type"] == "arrow")
+        self.assertEqual(arrow_count, 4)
+
+    def test_link_action_nodes_carry_an_obsidian_link(self) -> None:
+        outline_data = make_outline(
+            layout="tree",
+            long_content_strategy="link",
+            nodes=[
+                {
+                    "id": "n1",
+                    "text": "See note",
+                    "action": "link",
+                    "source_anchor": "some-heading",
+                    "children": [],
+                }
+            ],
+        )
+        outline = generate_excalidraw.validate_outline(outline_data)
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        document = generate_excalidraw.build_excalidraw_document(
+            outline, positions, vault_name="Second Brain"
+        )
+        rect = next(el for el in document["elements"] if el["id"] == "n1")
+        self.assertTrue(rect["link"].startswith("obsidian://open?"))
+
+
 if __name__ == "__main__":
     unittest.main()
