@@ -30,6 +30,14 @@ Configures and audits the formatting and presentation layer around captured Mark
 
 The primary supported producer for this layer is the bundled `web-to-obsidian` skill. The official Obsidian Web Clipper template is an experimental compatibility path that creates a smaller, different note schema; it is not currently stable enough to claim equivalent behavior. Shared `web-clip` styling does not provide the capture helper's identity, redaction, duplicate, publication, or refresh guarantees.
 
+### `obsidian-excalidraw-mindmap`
+
+**Status: prototype / demo, under active development — not yet stable.**
+
+Turns one already-captured note into a brainstorm-style Excalidraw diagram: Claude builds a strictly source-derived outline (never inventing ideas), and `generate_excalidraw.py` computes a deterministic radial or tree layout, colors nodes by branch depth, applies Excalidraw's native hand-drawn styling, and publishes the result atomically, no-clobber, both inside the vault (linked from the source note) and optionally as a standalone file. It never captures browser content and never makes content judgments itself — content fidelity stays with the outline Claude provides, and layout/style/publication stay deterministic and testable in the script.
+
+The skill is offered as an optional follow-up right after `web-to-obsidian` finishes a capture, or invoked manually against any already-captured note the user names explicitly. It never guesses which note to diagram.
+
 ### Properties, Bases, and MOCs
 
 Properties provide stable machine-readable fields. Bases provide filtered operational views. MOCs remain curated navigation for meaningful themes and projects.

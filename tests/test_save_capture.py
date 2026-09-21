@@ -1273,6 +1273,59 @@ Actual personal note.
             self.assertEqual(result["status"], "duplicate")
             self.assertEqual(Path(str(result["path"])), old_note.resolve())
 
+    def test_content_file_capture_gets_generated_toc_for_three_or_more_headings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "# Intro\n\nSome intro text.\n\n"
+                "## First section\n\nBody one.\n\n"
+                "## Second section\n\nBody two.\n\n"
+                "### Second section detail\n\nNested body.\n",
+                encoding="utf-8",
+            )
+            args = make_args(temp_dir, content_file=str(content_file))
+            result = save_capture.run_capture(args)
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("> [!toc]- Table of contents", note)
+            self.assertIn("> - [[#Intro]]", note)
+            self.assertIn(">   - [[#Intro#First section|First section]]", note)
+            self.assertIn(">   - [[#Intro#Second section|Second section]]", note)
+            self.assertIn(
+                ">     - [[#Intro#Second section#Second section detail|Second section detail]]",
+                note,
+            )
+
+    def test_content_file_capture_with_fewer_than_three_headings_gets_no_toc(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "# Intro\n\nSome intro text.\n\n## Only other heading\n\nBody.\n",
+                encoding="utf-8",
+            )
+            args = make_args(temp_dir, content_file=str(content_file))
+            result = save_capture.run_capture(args)
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertNotIn("[!toc]", note)
+
+    def test_generate_toc_from_headings_skips_when_toc_already_present(self) -> None:
+        content = (
+            "> [!toc]- Table of contents\n> - [[#A]]\n\n"
+            "# A\n\n## B\n\n## C\n\n## D\n"
+        )
+        self.assertEqual(save_capture._generate_toc_from_headings(content), "")
+
+    def test_generate_toc_from_headings_ignores_headings_in_code_fences(self) -> None:
+        content = (
+            "# Real heading one\n\n"
+            "```python\n# Not a heading\n## Also not a heading\n```\n\n"
+            "## Real heading two\n\n"
+            "## Real heading three\n"
+        )
+        toc = save_capture._generate_toc_from_headings(content)
+        self.assertNotIn("Not a heading", toc)
+        self.assertIn("[[#Real heading one]]", toc)
+        self.assertIn("[[#Real heading one#Real heading two|Real heading two]]", toc)
+
 
 if __name__ == "__main__":
     unittest.main()

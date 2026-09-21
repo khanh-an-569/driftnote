@@ -1,0 +1,7 @@
+interface:
+  display_name: "Obsidian Excalidraw Mindmap"
+  short_description: "Turn a captured note into an Excalidraw diagram"
+  default_prompt: "Use $obsidian-excalidraw-mindmap to turn my captured note into a brainstorm-style Excalidraw diagram."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,6 +1,10 @@
 # Copy this file to web-to-obsidian.yaml and keep the real file uncommitted.
 vault_root: "D:/Notes/Second Brain"
 
+# Optional: where generated Excalidraw diagrams are written, relative to vault_root.
+# Defaults to the same folder as the source note when unset.
+excalidraw_output_dir: "20 Knowledge/Excalidraw"
+
 folders:
   inbox: "00 Inbox/Web"
   sources: "10 Sources"

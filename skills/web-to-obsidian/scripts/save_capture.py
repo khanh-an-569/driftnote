@@ -769,6 +769,59 @@ def _insert_toc_after_header(markdown: str, toc: str) -> str:
     return toc + "\n\n" + markdown
 
 
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_CODE_FENCE_PATTERN = re.compile(r"^```")
+
+
+def _extract_markdown_headings(content: str) -> list[tuple[int, str]]:
+    headings: list[tuple[int, str]] = []
+    in_code_fence = False
+    for line in content.splitlines():
+        if _CODE_FENCE_PATTERN.match(line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        match = _MARKDOWN_HEADING_PATTERN.match(line)
+        if match:
+            headings.append((len(match.group(1)), match.group(2).strip()))
+    return headings
+
+
+def _generate_toc_from_headings(content: str) -> str:
+    """Fallback TOC: synthesize one from the content's own headings.
+
+    Only runs when no native page TOC was already cloned into ``content``
+    and there are enough headings to make navigation useful.
+    """
+    if "[!toc]" in content:
+        return ""
+    headings = _extract_markdown_headings(content)
+    if len(headings) < 3:
+        return ""
+
+    lines: list[str] = []
+    stack: list[tuple[int, str]] = []
+    for level, text in headings:
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        ancestors = tuple(entry[1] for entry in stack)
+        path = ancestors + (text,)
+        stack.append((level, text))
+        destination = "#" + "#".join(_escape_wikilink(part) for part in path)
+        escaped_text = _escape_wikilink(text)
+        if len(path) == 1:
+            wikilink = f"[[{destination}]]"
+        else:
+            wikilink = f"[[{destination}|{escaped_text}]]"
+        depth = len(path) - 1
+        lines.append(f"{'  ' * depth}- {wikilink}")
+
+    toc_lines = ["> [!toc]- Table of contents"]
+    toc_lines.extend(f"> {line}" for line in lines)
+    return "\n".join(toc_lines)
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
@@ -1636,6 +1689,8 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
                     last_error = exc
             if not tavily_depth and last_error:
                 warnings.append("Tavily extraction failed.")
+
+    content = _insert_toc_after_header(content, _generate_toc_from_headings(content))
 
     capture_method = args.capture_method
     if tavily_depth:
