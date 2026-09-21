@@ -5,6 +5,8 @@ description: Use when a user asks to turn a captured Obsidian source note into a
 
 # Obsidian Excalidraw Mindmap
 
+> **Status: prototype / demo.** This skill is under active development and has not yet been used in production long enough to be called stable. The pipeline is implemented and tested, but expect rough edges and possible breaking changes. / **Trạng thái: nguyên mẫu / demo.** Skill này vẫn đang trong quá trình phát triển, chưa được dùng thực tế đủ lâu để gọi là ổn định. Pipeline đã được triển khai và có test, nhưng vẫn có thể còn điểm chưa hoàn thiện và hành vi có thể thay đổi.
+
 Turn one already-captured source note into a polished, branching Excalidraw diagram without inventing or reinterpreting its ideas. / Biến một source note đã capture sẵn thành sơ đồ Excalidraw rẽ nhánh, đẹp mắt, không bịa hay diễn giải lại ý gốc.
 
 ## When to use / Khi nào dùng

@@ -14,6 +14,7 @@ Capture and presentation are different jobs. This repository keeps them separate
 
 1. `web-to-obsidian` saves a traceable source note quickly.
 2. `obsidian-clip-beautifier` configures conservative Markdown formatting and scoped visual styling, and stages an inactive experimental Web Clipper template asset.
+3. `obsidian-excalidraw-mindmap` *(prototype / demo — under active development, not yet stable)* turns an already-captured note into a brainstorm-style Excalidraw diagram.
 
 Raw source content is preserved. Duplicate URLs are skipped. Tavily is a public-web fallback, not a way to bypass login or paywalls.
 
@@ -39,6 +40,7 @@ plugin.json
 skills/
   web-to-obsidian/
   obsidian-clip-beautifier/
+  obsidian-excalidraw-mindmap/  # prototype / demo, under active development
 scripts/
   check_no_secrets.py
 vault-starter/
@@ -50,7 +52,8 @@ docs/
 
 The root `plugin.json` is the portable Agent Plugins manifest. The
 `.codex-plugin/plugin.json` compatibility manifest is kept in sync for Codex. The
-repo bundles exactly two skills.
+repo bundles three skills: `web-to-obsidian` and `obsidian-clip-beautifier` are
+stable, and `obsidian-excalidraw-mindmap` is an early-stage prototype/demo.
 
 ## Requirements
 
@@ -73,7 +76,7 @@ In that Codex task, invoke `$plugin-creator` with:
 
 ```text
 Register this repository as my personal plugin named web-to-obsidian.
-Keep both bundled skills, create or update the personal marketplace entry,
+Keep all bundled skills, create or update the personal marketplace entry,
 validate the package, and do not copy .env files or secrets.
 ```
 
@@ -94,6 +97,7 @@ The installed plugin bundles exactly:
 
 - `web-to-obsidian` for browser capture and local vault writes.
 - `obsidian-clip-beautifier` for one-time setup, auditing, and maintenance of the formatting layer.
+- `obsidian-excalidraw-mindmap` *(prototype / demo)* for turning a captured note into a brainstorm-style Excalidraw diagram — still under active development and not yet stable.
 
 Install or refresh the registered plugin with:
 
@@ -124,6 +128,13 @@ a fully supported path. The two capture paths produce different note schemas;
 test the extension with a disposable note before relying on it or batch-linting
 its output.
 
+`obsidian-excalidraw-mindmap` is a newer addition and is explicitly a
+**prototype / demo**: the outline-to-diagram pipeline, layout algorithms, and
+Excalidraw styling are implemented and tested, but the skill is still under
+active development and has not been used in production long enough to be
+called stable. Expect rough edges, incomplete coverage of edge cases, and
+possible breaking changes before it settles.
+
 Improvements, feedback, and reports of rough edges are warmly welcome. They are
 an opportunity for this project and its maintainer to keep learning. ( •̀ .̫ •́ )✧
 
@@ -135,7 +146,8 @@ an opportunity for this project and its maintainer to keep learning. ( •̀ .̫
 | `web-to-obsidian` | The ChatGPT/Codex task using the installed plugin | Applies privacy and permalink checks, chooses browser content or an allowed public fallback, and invokes the local helper. |
 | `save_capture.py` | The local machine | Canonicalizes and redacts the URL, detects duplicates, and writes one source note into the confirmed local vault. |
 | `obsidian-clip-beautifier` | A local ChatGPT Work or Codex task | Sets up or audits Linter rules, scoped CSS, and optional export preparation. The helper stages an inactive experimental Web Clipper template, but importing, configuring, or verifying it requires an explicit request. It is not run for every capture. |
-| Official Obsidian Web Clipper | The browser extension | Optional experimental path that consumes the supplied fallback template and creates a simpler note schema. It does not invoke either bundled skill. |
+| `obsidian-excalidraw-mindmap` *(prototype / demo)* | A local ChatGPT Work or Codex task, or a Claude Code session with the plugin installed | Turns an already-captured note into a brainstorm-style Excalidraw diagram (radial or tree layout). Still under active development; not yet stable. |
+| Official Obsidian Web Clipper | The browser extension | Optional experimental path that consumes the supplied fallback template and creates a simpler note schema. It does not invoke any bundled skill. |
 | Obsidian | The local desktop app | Renders the saved Markdown and applies the configured Linter/CSS behavior. |
 
 For the best experience, run `obsidian-clip-beautifier` once from a local task for each vault, then use `web-to-obsidian` from browser side chat for daily capture. The ChatGPT browser extension provides browser context; file writing remains local.
@@ -217,6 +229,7 @@ python .\scripts\check_no_secrets.py --root .
 python -m unittest discover -s tests -v
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\web-to-obsidian
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-clip-beautifier
+python -X utf8 "$env:USERPROFILE\.codex\skills\.system\skill-creator\scripts\quick_validate.py" .\skills\obsidian-excalidraw-mindmap
 python -X utf8 "$env:USERPROFILE\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py" .
 ```
 

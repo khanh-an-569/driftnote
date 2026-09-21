@@ -32,6 +32,8 @@ Nguồn tạo note được hỗ trợ chính cho lớp này là skill `web-to-o
 
 ### `obsidian-excalidraw-mindmap`
 
+**Trạng thái: nguyên mẫu / demo, đang trong quá trình phát triển — chưa ổn định.**
+
 Biến một note đã capture sẵn thành sơ đồ Excalidraw kiểu brainstorm: Claude dựng outline bám chặt nguồn (không bịa ý), còn `generate_excalidraw.py` tính bố cục radial hoặc cây tất định, tô màu node theo cấp nhánh, áp style vẽ tay gốc của Excalidraw, rồi publish nguyên tử, no-clobber, cả trong vault (link từ note gốc) lẫn bản standalone tuỳ chọn. Skill không tự lấy nội dung trình duyệt và không tự đưa ra phán đoán nội dung — độ trung thực nội dung nằm ở outline do Claude cung cấp, còn bố cục/style/publish luôn tất định và test được trong script.
 
 Skill được gợi ý như một bước tuỳ chọn ngay sau khi `web-to-obsidian` capture xong, hoặc gọi thủ công trên bất kỳ note đã capture nào người dùng nêu rõ. Skill không bao giờ tự đoán note.
