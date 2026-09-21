@@ -30,10 +30,6 @@ Cấu hình và kiểm tra lớp định dạng và trình bày quanh Markdown �
 
 Nguồn tạo note được hỗ trợ chính cho lớp này là skill `web-to-obsidian` được đóng gói trong plugin. Template dành cho extension Obsidian Web Clipper chính thức chỉ là luồng tương thích thử nghiệm, tạo schema note nhỏ hơn và khác biệt; hiện chưa đủ ổn định để tuyên bố hành vi tương đương. Việc dùng chung CSS `web-clip` không mang lại các bảo đảm của capture helper về định danh, redaction, chống trùng, publish hay refresh.
 
-### `obsidian-excalidraw-mindmap`
-
-Biến một note Obsidian đã được thu thập thành sơ đồ Excalidraw dạng brainstorm. Nó trích xuất cấu trúc heading và bullet từ note, xây dựng một outline phân tầng, áp dụng cách bố cục nhất quán (radial mindmap hoặc tree hierarchy) và chiến lược nội dung (link lại, condense thành các child node, hoặc placeholder thủ công), sau đó public một file `.excalidraw` và tùy chọn thêm một embed link quay lại note. Không bao giờ bịa, tóm tắt hay diễn giải lại ý trong source note; chỉ xây dựng diagram từ cấu trúc đã có sẵn.
-
 ### Properties, Bases và MOC
 
 Properties cung cấp trường dữ liệu ổn định mà máy có thể đọc. Bases cung cấp các view được lọc phục vụ vận hành. MOC là lớp điều hướng được tuyển chọn cho chủ đề và dự án có ý nghĩa.
