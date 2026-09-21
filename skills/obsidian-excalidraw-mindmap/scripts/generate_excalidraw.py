@@ -87,6 +87,11 @@ def validate_outline(data: dict[str, Any]) -> ValidatedOutline:
         node_id = raw.get("id")
         if not isinstance(node_id, str) or not node_id.strip():
             raise MindmapError(f"Node at depth {depth} is missing a non-empty 'id'.")
+        if node_id.endswith("-text"):
+            raise MindmapError(
+                f"Node id {node_id!r} is not allowed to end in '-text'; it would collide "
+                "with that node's auto-generated text element id."
+            )
         if node_id in seen_ids:
             raise MindmapError(f"Duplicate node id: {node_id!r}.")
         seen_ids.add(node_id)
@@ -186,14 +191,25 @@ def _leaf_count(node: OutlineNode) -> int:
 
 
 def compute_radial_layout(outline: ValidatedOutline) -> dict[str, NodePosition]:
-    positions: dict[str, NodePosition] = {"__root__": NodePosition(x=0.0, y=0.0)}
+    positions: dict[str, NodePosition] = {
+        "__root__": NodePosition(x=0.0 - NODE_WIDTH / 2, y=0.0 - NODE_HEIGHT / 2)
+    }
     total_leaves = sum(_leaf_count(node) for node in outline.nodes)
     two_pi = 2 * math.pi
 
+    # Guarantee that a full ring of `total_leaves` boxes placed side by side at any
+    # depth's radius has enough circumference to avoid overlapping bounding boxes.
+    min_ring_circumference = (NODE_WIDTH + SIBLING_GAP) * total_leaves
+    min_radius_for_leaves = min_ring_circumference / two_pi
+    effective_radius_step = max(RADIUS_STEP, min_radius_for_leaves)
+
     def place(node: OutlineNode, start_angle: float, span: float) -> None:
         angle = start_angle + span / 2
-        radius = node.depth * RADIUS_STEP
-        positions[node.id] = NodePosition(x=radius * math.cos(angle), y=radius * math.sin(angle))
+        radius = node.depth * effective_radius_step
+        positions[node.id] = NodePosition(
+            x=radius * math.cos(angle) - NODE_WIDTH / 2,
+            y=radius * math.sin(angle) - NODE_HEIGHT / 2,
+        )
 
         if node.children:
             child_total = sum(_leaf_count(child) for child in node.children)
@@ -213,7 +229,7 @@ def compute_radial_layout(outline: ValidatedOutline) -> dict[str, NodePosition]:
 
 
 DEPTH_COLORS = [
-    ("#1e1e2e", "#ffffff"),
+    ("#dbe4ff", "#364fc7"),
     ("#ffd8a8", "#e8590c"),
     ("#b2f2bb", "#2b8a3e"),
     ("#a5d8ff", "#1864ab"),
@@ -364,7 +380,9 @@ def build_obsidian_uri(vault_name: str, note_relative_path: str, anchor: str | N
         file_value = file_value[: -len(".md")]
     if anchor:
         file_value = f"{file_value}#{anchor}"
-    query = urllib.parse.urlencode({"vault": vault_name, "file": file_value})
+    query = urllib.parse.urlencode(
+        {"vault": vault_name, "file": file_value}, quote_via=urllib.parse.quote
+    )
     return f"obsidian://open?{query}"
 
 
@@ -377,20 +395,33 @@ def build_excalidraw_document(
     outline: ValidatedOutline, positions: dict[str, NodePosition], *, vault_name: str
 ) -> dict[str, Any]:
     elements: list[dict[str, Any]] = []
+    rectangles_by_id: dict[str, dict[str, Any]] = {}
 
     root_pos = positions["__root__"]
-    elements.append(build_rectangle("root", root_pos, depth=0, action="full"))
+    root_rect = build_rectangle("root", root_pos, depth=0, action="full")
+    elements.append(root_rect)
+    rectangles_by_id["root"] = root_rect
     elements.append(build_text("root-text", "root", root_pos, outline.title))
+
+    def add_arrow(parent_id: str, node_id: str, parent_pos: NodePosition, pos: NodePosition) -> None:
+        arrow_id = f"{parent_id}->{node_id}"
+        arrow = build_arrow(arrow_id, parent_id, node_id, parent_pos, pos)
+        elements.append(arrow)
+        binding_entry = {"id": arrow_id, "type": "arrow"}
+        rectangles_by_id[parent_id]["boundElements"].append(binding_entry)
+        rectangles_by_id[node_id]["boundElements"].append(binding_entry)
 
     def walk(node: OutlineNode, parent_id: str, parent_pos: NodePosition) -> None:
         pos = positions[node.id]
-        elements.append(build_rectangle(node.id, pos, depth=node.depth, action=node.action))
+        rect = build_rectangle(node.id, pos, depth=node.depth, action=node.action)
+        elements.append(rect)
+        rectangles_by_id[node.id] = rect
         elements.append(build_text(f"{node.id}-text", node.id, pos, node.text))
         if node.action in ("condensed", "link"):
             elements[-2]["link"] = build_obsidian_uri(
                 vault_name, outline.source_note_path, node.source_anchor
             )
-        elements.append(build_arrow(f"{parent_id}->{node.id}", parent_id, node.id, parent_pos, pos))
+        add_arrow(parent_id, node.id, parent_pos, pos)
         for child in node.children:
             walk(child, node.id, pos)
 
@@ -444,6 +475,11 @@ def write_excalidraw_file(document: dict[str, Any], target_path: Path, *, regene
         except FileExistsError as exc:
             raise MindmapError(
                 f"{target_path} already exists. Pass --regenerate to overwrite it."
+            ) from exc
+        except OSError as exc:
+            raise MindmapError(
+                f"This filesystem cannot publish {target_path.name} without overwrite risk "
+                "(hard links are unsupported here)."
             ) from exc
         return "created"
     finally:
@@ -562,7 +598,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     vault = resolve_vault(args.vault)
     note_path = (vault / outline.source_note_path).resolve()
-    note_path.relative_to(vault)
+    try:
+        note_path.relative_to(vault)
+    except ValueError as exc:
+        raise MindmapError(f"Source note must be inside the vault: {note_path}") from exc
     if not note_path.is_file():
         raise MindmapError(f"Source note does not exist: {note_path}")
 
@@ -574,7 +613,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir_value = args.output_dir
     if not output_dir_value and args.config_file:
         output_dir_value = _config_value(Path(args.config_file), "excalidraw_output_dir")
-    output_dir = (vault / output_dir_value) if output_dir_value else note_path.parent
+    output_dir = (vault / output_dir_value).resolve() if output_dir_value else note_path.parent
+    if output_dir_value:
+        try:
+            output_dir.relative_to(vault)
+        except ValueError as exc:
+            raise MindmapError(f"Output directory must be inside the vault: {output_dir}") from exc
     diagram_filename = f"{note_path.stem}.excalidraw"
     target_path = output_dir / diagram_filename
 
@@ -585,16 +629,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         linked = append_diagram_link(note_path, diagram_filename)
 
     exported_to = None
+    export_error = None
     if args.export_dir:
-        export_path = Path(args.export_dir).expanduser().resolve() / diagram_filename
-        write_excalidraw_file(document, export_path, regenerate=True)
-        exported_to = str(export_path)
+        try:
+            export_path = Path(args.export_dir).expanduser().resolve() / diagram_filename
+            write_excalidraw_file(document, export_path, regenerate=args.regenerate)
+            exported_to = str(export_path)
+        except (MindmapError, OSError, ValueError) as exc:
+            export_error = str(exc)
 
     return {
         "status": status,
         "path": str(target_path),
         "linked_from_note": linked,
         "exported_to": exported_to,
+        "export_error": export_error,
     }
 
 

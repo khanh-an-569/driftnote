@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -129,6 +130,21 @@ class ValidateOutlineTests(unittest.TestCase):
         with self.assertRaises(generate_excalidraw.MindmapError):
             generate_excalidraw.validate_outline(make_outline(layout="circular"))
 
+    def test_node_id_ending_in_text_suffix_is_rejected(self) -> None:
+        outline = make_outline(
+            nodes=[
+                {
+                    "id": "n1-text",
+                    "text": "Would collide with n1's text element id",
+                    "action": "full",
+                    "source_anchor": None,
+                    "children": [],
+                }
+            ]
+        )
+        with self.assertRaises(generate_excalidraw.MindmapError):
+            generate_excalidraw.validate_outline(outline)
+
 
 def make_two_level_outline() -> dict:
     return make_outline(
@@ -176,19 +192,53 @@ class TreeLayoutTests(unittest.TestCase):
         self.assertNotEqual(positions["a"].y, positions["b"].y)
 
 
+def _boxes_overlap(pos_a, pos_b) -> bool:
+    """Return True if two NodePosition bounding boxes overlap (share interior area)."""
+    ax0, ay0 = pos_a.x, pos_a.y
+    ax1, ay1 = pos_a.x + pos_a.width, pos_a.y + pos_a.height
+    bx0, by0 = pos_b.x, pos_b.y
+    bx1, by1 = pos_b.x + pos_b.width, pos_b.y + pos_b.height
+    return ax0 < bx1 and bx0 < ax1 and ay0 < by1 and by0 < ay1
+
+
+def make_wide_fanout_outline(leaf_count: int) -> dict:
+    return make_outline(
+        layout="radial",
+        nodes=[
+            {
+                "id": f"leaf{i}",
+                "text": f"Leaf {i}",
+                "action": "full",
+                "source_anchor": None,
+                "children": [],
+            }
+            for i in range(leaf_count)
+        ],
+    )
+
+
 class RadialLayoutTests(unittest.TestCase):
-    def test_root_is_at_the_origin(self) -> None:
+    def test_root_is_centered_on_the_origin(self) -> None:
         outline = generate_excalidraw.validate_outline(make_two_level_outline())
         positions = generate_excalidraw.compute_radial_layout(outline)
-        self.assertEqual((positions["__root__"].x, positions["__root__"].y), (0.0, 0.0))
+        root = positions["__root__"]
+        self.assertEqual(
+            (root.x, root.y),
+            (0.0 - generate_excalidraw.NODE_WIDTH / 2, 0.0 - generate_excalidraw.NODE_HEIGHT / 2),
+        )
 
     def test_radius_grows_with_depth(self) -> None:
-        import math
-
         outline = generate_excalidraw.validate_outline(make_two_level_outline())
         positions = generate_excalidraw.compute_radial_layout(outline)
-        radius_a = math.hypot(positions["a"].x, positions["a"].y)
-        radius_a1 = math.hypot(positions["a1"].x, positions["a1"].y)
+        root = positions["__root__"]
+        center_a_x = positions["a"].x + generate_excalidraw.NODE_WIDTH / 2
+        center_a_y = positions["a"].y + generate_excalidraw.NODE_HEIGHT / 2
+        center_a1_x = positions["a1"].x + generate_excalidraw.NODE_WIDTH / 2
+        center_a1_y = positions["a1"].y + generate_excalidraw.NODE_HEIGHT / 2
+        root_center_x = root.x + generate_excalidraw.NODE_WIDTH / 2
+        root_center_y = root.y + generate_excalidraw.NODE_HEIGHT / 2
+        radius_a = math.hypot(center_a_x - root_center_x, center_a_y - root_center_y)
+        radius_a1 = math.hypot(center_a1_x - root_center_x, center_a1_y - root_center_y)
         self.assertLess(radius_a, radius_a1)
 
     def test_siblings_land_at_distinct_angles(self) -> None:
@@ -199,6 +249,17 @@ class RadialLayoutTests(unittest.TestCase):
             (positions["a2"].x, positions["a2"].y),
         )
 
+    def test_wide_fanout_does_not_overlap(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_wide_fanout_outline(9))
+        positions = generate_excalidraw.compute_radial_layout(outline)
+        leaf_positions = [positions[f"leaf{i}"] for i in range(9)]
+        for i in range(len(leaf_positions)):
+            for j in range(i + 1, len(leaf_positions)):
+                self.assertFalse(
+                    _boxes_overlap(leaf_positions[i], leaf_positions[j]),
+                    f"leaf{i} and leaf{j} bounding boxes overlap",
+                )
+
 
 class ElementBuilderTests(unittest.TestCase):
     def test_rectangle_carries_depth_color_and_binds_its_text(self) -> None:
@@ -207,6 +268,17 @@ class ElementBuilderTests(unittest.TestCase):
         self.assertEqual(rect["type"], "rectangle")
         self.assertEqual(rect["strokeStyle"], "solid")
         self.assertEqual(rect["boundElements"], [{"id": "n1-text", "type": "text"}])
+
+    def test_root_depth_color_is_readable_against_white_background_and_text(self) -> None:
+        # Depth 0 (the root) must not be the old near-black-fill / white-stroke pair,
+        # which was invisible against the white canvas and unreadable under the
+        # text element's hardcoded dark strokeColor.
+        background, stroke = generate_excalidraw.DEPTH_COLORS[0]
+        self.assertNotEqual(background, "#1e1e2e")
+        self.assertNotEqual(stroke, "#ffffff")
+        # The text's hardcoded strokeColor must contrast with the root's background.
+        text_stroke_color = "#1e1e2e"
+        self.assertNotEqual(background, text_stroke_color)
 
     def test_link_action_uses_dashed_stroke(self) -> None:
         pos = generate_excalidraw.NodePosition(x=0, y=0)
@@ -247,7 +319,10 @@ class ElementBuilderTests(unittest.TestCase):
             "Second Brain", "10 Sources/example.md", "some-heading"
         )
         self.assertTrue(uri.startswith("obsidian://open?"))
-        self.assertIn("vault=Second+Brain", uri)
+        # Spaces must be percent-encoded as %20, not '+' (which is not the
+        # documented obsidian:// URI format).
+        self.assertIn("vault=Second%20Brain", uri)
+        self.assertNotIn("+", uri)
         self.assertIn("some-heading", uri)
 
     def test_obsidian_uri_without_anchor_omits_the_fragment(self) -> None:
@@ -275,6 +350,24 @@ class DocumentAssemblyTests(unittest.TestCase):
         self.assertEqual(rect_ids, {"root", "a", "a1", "a2", "b"})
         arrow_count = sum(1 for el in document["elements"] if el["type"] == "arrow")
         self.assertEqual(arrow_count, 4)
+
+    def test_parent_and_child_rectangles_both_list_their_arrow_in_bound_elements(self) -> None:
+        outline = generate_excalidraw.validate_outline(make_two_level_outline())
+        positions = generate_excalidraw.compute_tree_layout(outline)
+        document = generate_excalidraw.build_excalidraw_document(
+            outline, positions, vault_name="Second Brain"
+        )
+        elements_by_id = {el["id"]: el for el in document["elements"]}
+        arrow_id = "root->a"
+        self.assertIn(arrow_id, elements_by_id)
+
+        root_rect = elements_by_id["root"]
+        child_rect = elements_by_id["a"]
+        self.assertIn({"id": arrow_id, "type": "arrow"}, root_rect["boundElements"])
+        self.assertIn({"id": arrow_id, "type": "arrow"}, child_rect["boundElements"])
+
+        # The rectangle's own text binding must still be present alongside the arrow.
+        self.assertIn({"id": "a-text", "type": "text"}, child_rect["boundElements"])
 
     def test_link_action_nodes_carry_an_obsidian_link(self) -> None:
         outline_data = make_outline(
@@ -335,6 +428,21 @@ class PublishTests(unittest.TestCase):
             self.assertFalse(target.exists())
             leftover_temp_files = list(target.parent.glob("*.tmp"))
             self.assertEqual(leftover_temp_files, [])
+
+    def test_write_raises_clear_error_when_hard_links_are_unsupported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "diagram.excalidraw"
+            with mock.patch.object(
+                generate_excalidraw.os,
+                "link",
+                side_effect=OSError("hard links not supported on this filesystem"),
+            ):
+                with self.assertRaises(generate_excalidraw.MindmapError) as ctx:
+                    generate_excalidraw.write_excalidraw_file(
+                        {"type": "excalidraw"}, target, regenerate=False
+                    )
+            # Must be a distinct message from the "already exists" case.
+            self.assertNotIn("already exists", str(ctx.exception))
 
     def test_append_diagram_link_adds_a_new_section(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -478,6 +586,101 @@ class CliTests(unittest.TestCase):
             )
             result = generate_excalidraw.run(args)
             self.assertEqual(Path(result["path"]), vault / "explicit-dir" / "test-note.excalidraw")
+
+    def test_run_rejects_a_source_note_outside_the_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, _note_path = self.make_vault_with_note(root)
+            outside_note = root / "outside.md"
+            outside_note.write_text("# Outside\n", encoding="utf-8")
+            outline_path = self.make_outline_file(root, "../outside.md")
+
+            args = generate_excalidraw.build_parser().parse_args(
+                ["--outline-file", str(outline_path), "--vault", str(vault)]
+            )
+            with self.assertRaises(generate_excalidraw.MindmapError) as ctx:
+                generate_excalidraw.run(args)
+            self.assertIn("must be inside the vault", str(ctx.exception))
+
+    def test_run_rejects_an_output_dir_outside_the_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, _note_path = self.make_vault_with_note(root)
+            outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
+
+            args = generate_excalidraw.build_parser().parse_args(
+                [
+                    "--outline-file",
+                    str(outline_path),
+                    "--vault",
+                    str(vault),
+                    "--output-dir",
+                    "../outside-output",
+                ]
+            )
+            with self.assertRaises(generate_excalidraw.MindmapError) as ctx:
+                generate_excalidraw.run(args)
+            self.assertIn("must be inside the vault", str(ctx.exception))
+
+    def test_export_dir_respects_no_clobber_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, _note_path = self.make_vault_with_note(root)
+            outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
+            export_dir = root / "exports"
+            export_dir.mkdir()
+            existing_export = export_dir / "test-note.excalidraw"
+            existing_export.write_text("pre-existing content", encoding="utf-8")
+
+            args = generate_excalidraw.build_parser().parse_args(
+                [
+                    "--outline-file",
+                    str(outline_path),
+                    "--vault",
+                    str(vault),
+                    "--export-dir",
+                    str(export_dir),
+                ]
+            )
+            result = generate_excalidraw.run(args)
+
+            # The main vault write must still succeed even though the export
+            # copy could not be written without clobbering.
+            self.assertEqual(result["status"], "created")
+            self.assertTrue(Path(result["path"]).exists())
+            self.assertIsNone(result["exported_to"])
+            self.assertIsNotNone(result["export_error"])
+            self.assertIn("already exists", result["export_error"])
+            self.assertEqual(existing_export.read_text(encoding="utf-8"), "pre-existing content")
+
+    @unittest.skipUnless(sys.platform == "win32", "invalid path component is Windows-specific")
+    def test_export_dir_failure_does_not_fail_the_whole_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault, note_path = self.make_vault_with_note(root)
+            outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
+            # '?' is not a legal character in a Windows path component, so this
+            # directory can never be created.
+            export_dir = root / "bad?export"
+
+            args = generate_excalidraw.build_parser().parse_args(
+                [
+                    "--outline-file",
+                    str(outline_path),
+                    "--vault",
+                    str(vault),
+                    "--export-dir",
+                    str(export_dir),
+                ]
+            )
+            result = generate_excalidraw.run(args)
+
+            self.assertEqual(result["status"], "created")
+            self.assertTrue(Path(result["path"]).exists())
+            self.assertTrue(result["linked_from_note"])
+            self.assertIn("![[test-note.excalidraw]]", note_path.read_text(encoding="utf-8"))
+            self.assertIsNone(result["exported_to"])
+            self.assertIsNotNone(result["export_error"])
 
 
 if __name__ == "__main__":

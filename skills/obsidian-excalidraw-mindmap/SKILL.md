@@ -56,5 +56,6 @@ For an installed skill, resolve the directory containing this loaded `SKILL.md`,
 - Guessing the vault path or the note to diagram instead of resolving it explicitly.
 - Overwriting an existing `.excalidraw` file without `--regenerate`.
 - Touching the note's frontmatter or its `Ghi chú của tôi` section — the skill only appends a diagram embed link.
+- Forgetting that the appended `![[<note>.excalidraw]]` embed only resolves in Obsidian when the community "Excalidraw" plugin is installed and enabled with legacy `.excalidraw` file support turned on. / Quên rằng liên kết nhúng `![[<note>.excalidraw]]` chỉ hiển thị được trong Obsidian khi plugin cộng đồng "Excalidraw" đã được cài, bật, và bật hỗ trợ file `.excalidraw` kiểu cũ (legacy).
 
 Report the helper's status (`created`, `regenerated`, or `error`) plus the final `.excalidraw` path. / Báo trạng thái và đường dẫn file cuối cùng.
