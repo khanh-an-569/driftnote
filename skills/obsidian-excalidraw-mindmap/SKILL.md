@@ -16,7 +16,7 @@ Use on a note already created by `web-to-obsidian`, either right after capture (
 1. Ask the user two choices before building anything: `layout` (`radial` mindmap or left-to-right `tree`) and `long_content_strategy` (`link` back to the note, `condense` by splitting long paragraphs into further child nodes, or `manual` placeholders). Apply one strategy consistently for the whole diagram; never mix strategies within a single run. / Hỏi layout và cách xử lý đoạn dài trước, áp dụng nhất quán cho cả sơ đồ.
 2. Read the source note and build an outline strictly from its existing heading/bullet structure — never invent ideas that are not in the note. Follow [references/outline-schema.md](references/outline-schema.md) exactly. / Đọc note, dựng outline đúng cấu trúc có sẵn, không bịa ý.
 3. Write the outline to a JSON file and run `scripts/generate_excalidraw.py`. The script never reads note content itself and makes no content judgments — it only lays out, styles, and publishes exactly the outline it is given. Pass `--config-file` pointing at the vault's `web-to-obsidian.yaml` only when the user wants diagrams placed under its `excalidraw_output_dir` instead of next to the source note; otherwise omit it.
-4. Report the script's JSON result (`status`, `path`, `linked_from_note`, `exported_to`) to the user, including the full path to the generated `.excalidraw` file.
+4. Report the script's JSON result (`status`, `path`, `linked_from_note`, `exported_to`, and `export_error` when the vault write succeeded but the standalone export copy failed) to the user, including the full path to the generated `.excalidraw` file.
 
 From repository root / Từ repo root:
 

@@ -92,6 +92,15 @@ def validate_outline(data: dict[str, Any]) -> ValidatedOutline:
                 f"Node id {node_id!r} is not allowed to end in '-text'; it would collide "
                 "with that node's auto-generated text element id."
             )
+        if node_id == "root":
+            raise MindmapError(
+                f"Node id {node_id!r} is not allowed; it collides with the reserved root node id."
+            )
+        if "->" in node_id:
+            raise MindmapError(
+                f"Node id {node_id!r} is not allowed to contain '->'; it would collide "
+                "with the arrow-id naming convention."
+            )
         if node_id in seen_ids:
             raise MindmapError(f"Duplicate node id: {node_id!r}.")
         seen_ids.add(node_id)

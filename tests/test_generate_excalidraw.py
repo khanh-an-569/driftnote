@@ -145,6 +145,36 @@ class ValidateOutlineTests(unittest.TestCase):
         with self.assertRaises(generate_excalidraw.MindmapError):
             generate_excalidraw.validate_outline(outline)
 
+    def test_reserved_root_node_id_is_rejected(self) -> None:
+        outline = make_outline(
+            nodes=[
+                {
+                    "id": "root",
+                    "text": "Would collide with reserved root node id",
+                    "action": "full",
+                    "source_anchor": None,
+                    "children": [],
+                }
+            ]
+        )
+        with self.assertRaises(generate_excalidraw.MindmapError):
+            generate_excalidraw.validate_outline(outline)
+
+    def test_node_id_containing_arrow_separator_is_rejected(self) -> None:
+        outline = make_outline(
+            nodes=[
+                {
+                    "id": "a->b",
+                    "text": "Would collide with arrow-id naming convention",
+                    "action": "full",
+                    "source_anchor": None,
+                    "children": [],
+                }
+            ]
+        )
+        with self.assertRaises(generate_excalidraw.MindmapError):
+            generate_excalidraw.validate_outline(outline)
+
 
 def make_two_level_outline() -> dict:
     return make_outline(
