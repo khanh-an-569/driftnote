@@ -82,6 +82,7 @@ class RepositoryTests(unittest.TestCase):
                 "Local vault write",
                 "Public web extraction",
                 "Vault formatting setup",
+                "Diagram export",
             },
         )
 
