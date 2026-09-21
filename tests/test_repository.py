@@ -21,6 +21,7 @@ class RepositoryTests(unittest.TestCase):
         expected_skill_names = (
             "web-to-obsidian",
             "obsidian-clip-beautifier",
+            "obsidian-excalidraw-mindmap",
         )
         actual_skill_names = tuple(
             sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
@@ -90,6 +91,7 @@ class RepositoryTests(unittest.TestCase):
             ROOT / "vault-starter" / "Web Inbox.base",
             ROOT / "skills" / "web-to-obsidian" / "agents" / "openai.yaml",
             ROOT / "skills" / "obsidian-clip-beautifier" / "agents" / "openai.yaml",
+            ROOT / "skills" / "obsidian-excalidraw-mindmap" / "agents" / "openai.yaml",
         ]
         parsed = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in paths]
         base = parsed[1]
