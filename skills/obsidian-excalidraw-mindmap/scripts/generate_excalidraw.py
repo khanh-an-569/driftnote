@@ -422,12 +422,16 @@ def write_excalidraw_file(document: dict[str, Any], target_path: Path, *, regene
             suffix=".tmp",
             delete=False,
         ) as handle:
+            temp_path = Path(handle.name)
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-            temp_path = Path(handle.name)
 
         if target_path.exists():
+            if not regenerate:
+                raise MindmapError(
+                    f"{target_path} already exists. Pass --regenerate to overwrite it."
+                )
             os.replace(temp_path, target_path)
             temp_path = None
             return "regenerated"
@@ -456,10 +460,10 @@ def _atomic_replace_text(path: Path, text: str) -> None:
             suffix=".tmp",
             delete=False,
         ) as handle:
+            temp_path = Path(handle.name)
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-            temp_path = Path(handle.name)
         os.replace(temp_path, path)
         temp_path = None
     finally:

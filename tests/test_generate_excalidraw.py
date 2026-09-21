@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -319,6 +320,20 @@ class PublishTests(unittest.TestCase):
             status = generate_excalidraw.write_excalidraw_file({"version": 2}, target, regenerate=True)
             self.assertEqual(status, "regenerated")
             self.assertIn('"version": 2', target.read_text(encoding="utf-8"))
+
+    def test_write_cleans_up_temp_file_on_mid_write_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "diagram.excalidraw"
+            with mock.patch.object(
+                generate_excalidraw.os, "fsync", side_effect=OSError("disk full")
+            ):
+                with self.assertRaises(OSError):
+                    generate_excalidraw.write_excalidraw_file(
+                        {"type": "excalidraw"}, target, regenerate=False
+                    )
+            self.assertFalse(target.exists())
+            leftover_temp_files = list(target.parent.glob("*.tmp"))
+            self.assertEqual(leftover_temp_files, [])
 
     def test_append_diagram_link_adds_a_new_section(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
