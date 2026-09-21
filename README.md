@@ -1,6 +1,6 @@
-# Web to Obsidian
+# Driftnote
 
-[![CI](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/web-to-obsidian/actions/workflows/ci.yml)
+[![CI](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml/badge.svg)](https://github.com/khanh-an-569/driftnote/actions/workflows/ci.yml)
 
 A traceable browser-to-Obsidian workflow for capturing browser content with ChatGPT and polishing the resulting Markdown in Obsidian.
 
@@ -15,12 +15,12 @@ Bản tiếng Việt đầy đủ được duy trì song song trong `README.vi.m
 **Install:** clone the repo, then register it as a plugin for your runtime — see "Install from public GitHub" below for the full Codex flow. For Claude Code:
 
 ```powershell
-git clone https://github.com/khanh-an-569/web-to-obsidian.git
-claude plugin marketplace add .\web-to-obsidian
-claude plugin install web-to-obsidian@web-to-obsidian
+git clone https://github.com/khanh-an-569/driftnote.git
+claude plugin marketplace add .\driftnote
+claude plugin install driftnote@driftnote
 ```
 
-**Use:** open a page in your browser, then in chat send `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), or `/web-to-obsidian:web-to-obsidian` (Claude Code) with what you want saved. See "Use from the ChatGPT browser extension" below for full examples and configuration.
+**Use:** open a page in your browser, then in chat send `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), or `/driftnote:web-to-obsidian` (Claude Code) with what you want saved. See "Use from the ChatGPT browser extension" below for full examples and configuration.
 
 Everything below this point is the full reference — setup details, privacy model, configuration, and all three skills.
 
@@ -86,14 +86,14 @@ stable, and `obsidian-excalidraw-mindmap` is an early-stage prototype/demo.
 Clone the public repository, then open the clone as a local Codex project:
 
 ```powershell
-git clone https://github.com/khanh-an-569/web-to-obsidian.git
-Set-Location .\web-to-obsidian
+git clone https://github.com/khanh-an-569/driftnote.git
+Set-Location .\driftnote
 ```
 
 In that Codex task, invoke `$plugin-creator` with:
 
 ```text
-Register this repository as my personal plugin named web-to-obsidian.
+Register this repository as my personal plugin named driftnote.
 Keep all bundled skills, create or update the personal marketplace entry,
 validate the package, and do not copy .env files or secrets.
 ```
@@ -105,7 +105,7 @@ Development source
   <this repository>
 
 Installed plugin
-  %USERPROFILE%\plugins\web-to-obsidian
+  %USERPROFILE%\plugins\driftnote
 
 Personal marketplace
   %USERPROFILE%\.agents\plugins\marketplace.json
@@ -120,7 +120,7 @@ The installed plugin bundles exactly:
 Install or refresh the registered plugin with:
 
 ```powershell
-codex plugin add web-to-obsidian@personal
+codex plugin add driftnote@personal
 ```
 
 Refresh ChatGPT and start a new chat before testing so the desktop app and browser extension pick up the installed plugin.
@@ -180,7 +180,7 @@ Copy-Item .\.env.example .\.env
 
 Use the repository-root `.env` as the central local configuration for background skill helpers. Set `WEB_TO_OBSIDIAN_VAULT_PATH` for this skill and optionally set `OBSIDIAN_VAULT_PATH` as a shared compatibility fallback. Future skills that need a different vault should use their own namespaced variable, such as `ANOTHER_SKILL_VAULT_PATH`. The capture helper checks a workspace `.env` first, then finds this central file from its resolved source location; variables already present in the process take precedence, and `--env-file` remains an explicit override. `.env` is ignored by Git. Never put a real key in a prompt, note, skill file, committed configuration, or `.env.example`. Rotate any key that has appeared in a log before using it again.
 
-`web-to-obsidian.yaml` remains optional for folder and capture defaults. Vault precedence is explicit `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, legacy `OBSIDIAN_VAULT_PATH`, then `vault_root` in the YAML file.
+`driftnote.yaml` remains optional for folder and capture defaults. Vault precedence is explicit `--vault`, `WEB_TO_OBSIDIAN_VAULT_PATH`, legacy `OBSIDIAN_VAULT_PATH`, then `vault_root` in the YAML file.
 
 Optionally copy the contents of `vault-starter` into a new vault. It provides a small folder layout and an Obsidian Base with Inbox, Reading, Music, and Processed views.
 

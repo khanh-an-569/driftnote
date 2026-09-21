@@ -572,7 +572,7 @@ class CliTests(unittest.TestCase):
             root = Path(temp_dir)
             vault, _note_path = self.make_vault_with_note(root)
             outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
-            config_path = root / "web-to-obsidian.yaml"
+            config_path = root / "driftnote.yaml"
             config_path.write_text(
                 'vault_root: "unused"\nexcalidraw_output_dir: "20 Knowledge/Excalidraw"\n',
                 encoding="utf-8",
@@ -599,7 +599,7 @@ class CliTests(unittest.TestCase):
             root = Path(temp_dir)
             vault, _note_path = self.make_vault_with_note(root)
             outline_path = self.make_outline_file(root, "10 Sources/test-note.md")
-            config_path = root / "web-to-obsidian.yaml"
+            config_path = root / "driftnote.yaml"
             config_path.write_text('excalidraw_output_dir: "should-not-be-used"\n', encoding="utf-8")
 
             args = generate_excalidraw.build_parser().parse_args(

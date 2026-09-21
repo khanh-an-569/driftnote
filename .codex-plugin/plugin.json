@@ -1,12 +1,12 @@
 {
-  "name": "web-to-obsidian",
+  "name": "driftnote",
   "version": "0.5.0",
   "description": "Capture browser sources into a local Obsidian vault, configure safe formatting for the resulting web clips, and turn a captured note into a brainstorm-style Excalidraw diagram.",
   "author": {
     "name": "khanh-an-569"
   },
-  "homepage": "https://github.com/khanh-an-569/web-to-obsidian#readme",
-  "repository": "https://github.com/khanh-an-569/web-to-obsidian",
+  "homepage": "https://github.com/khanh-an-569/driftnote#readme",
+  "repository": "https://github.com/khanh-an-569/driftnote",
   "license": "MIT",
   "keywords": [
     "obsidian",
@@ -19,7 +19,7 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Web to Obsidian",
+    "displayName": "Driftnote",
     "shortDescription": "Capture and format web sources in Obsidian.",
     "longDescription": "Three focused workflows: saving a browser tab, selection, or public URL into a local Obsidian vault; configuring safe Markdown formatting, scoped CSS, and export preparation for captured web notes; and turning a captured note into a brainstorm-style Excalidraw diagram.",
     "developerName": "khanh-an-569",

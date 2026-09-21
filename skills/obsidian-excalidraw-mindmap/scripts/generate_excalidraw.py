@@ -397,7 +397,7 @@ def build_obsidian_uri(vault_name: str, note_relative_path: str, anchor: str | N
 
 EXCALIDRAW_TYPE = "excalidraw"
 EXCALIDRAW_VERSION = 2
-EXCALIDRAW_SOURCE = "https://github.com/khanh-an-569/web-to-obsidian"
+EXCALIDRAW_SOURCE = "https://github.com/khanh-an-569/driftnote"
 
 
 def build_excalidraw_document(
@@ -582,7 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config-file",
         help=(
-            "Path to web-to-obsidian.yaml to read an 'excalidraw_output_dir' default from. "
+            "Path to driftnote.yaml to read an 'excalidraw_output_dir' default from. "
             "Optional; no config file is read when omitted."
         ),
     )
