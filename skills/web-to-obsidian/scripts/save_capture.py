@@ -16,6 +16,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import sys
 import tempfile
 import time
@@ -79,7 +80,15 @@ WINDOWS_RESERVED_NAMES = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 CONTENT_TYPES = ("article", "news", "bookmark", "music", "video", "podcast", "social", "other")
-CAPTURE_METHODS = ("selection", "chrome", "tavily-basic", "tavily-advanced", "hybrid", "manual")
+CAPTURE_METHODS = (
+    "selection",
+    "chrome",
+    "tavily-basic",
+    "tavily-advanced",
+    "hybrid",
+    "manual",
+    "public-html",
+)
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 CSS_CLASS_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SKILL_VAULT_ENV_NAME = "WEB_TO_OBSIDIAN_VAULT_PATH"
@@ -263,6 +272,7 @@ class _HtmlMarkdownRenderer:
     def __init__(self, base_url: str, *, heading_offset: int = 0) -> None:
         self.base_url = base_url
         self.heading_offset = max(0, heading_offset)
+        self._fragment_paths: dict[str, tuple[str, ...]] = {}
 
     def render(self, node: HtmlNode | str) -> str:
         if isinstance(node, str):
@@ -310,6 +320,16 @@ class _HtmlMarkdownRenderer:
             return f"=={value}==" if value else ""
         if tag == "a":
             label = self._inline_children(node).strip()
+            href = html_lib.unescape(node.attrs.get("href", "")).strip()
+            if href.startswith("#") and len(href) > 1:
+                fragment = urllib.parse.unquote(href[1:])
+                path = self._fragment_paths.get(fragment)
+                if path:
+                    destination = "#" + "#".join(_escape_wikilink(part) for part in path)
+                    if len(path) == 1 and label == path[-1]:
+                        return f"[[{destination}]]"
+                    escaped_label = _escape_wikilink(label) if label else _escape_wikilink(path[-1])
+                    return f"[[{destination}|{escaped_label}]]"
             target = self._resolve_url(node.attrs.get("href", ""), image=False)
             if not target:
                 return label
@@ -646,6 +666,32 @@ def _find_html_node(root: HtmlNode, predicate: object) -> HtmlNode | None:
     return None
 
 
+def _parse_html_tree(html: str) -> HtmlNode:
+    """Parse HTML into the node tree every rich-HTML path operates on."""
+
+    parser = _HtmlTreeParser()
+    parser.feed(html)
+    parser.close()
+    return parser.root
+
+
+def _select_conversion_root(root: HtmlNode) -> HtmlNode:
+    """Pick the single subtree html_to_markdown() converts. Shared with the
+    structural-loss counters (rather than duplicated) so the converter and
+    the loss detector can never disagree about which region "the converted
+    content" is — counting the whole document would flag every heading in a
+    page's <header>/<nav>/<aside>/<footer> as lost content.
+    """
+
+    return (
+        _find_html_node(root, lambda node: node.tag == "article")
+        or _find_html_node(root, lambda node: node.tag == "main")
+        or _find_html_node(root, lambda node: node.attrs.get("role", "").lower() == "main")
+        or _find_html_node(root, lambda node: node.tag == "body")
+        or root
+    )
+
+
 def _direct_children(node: HtmlNode, tag: str) -> list[HtmlNode]:
     return [
         child
@@ -674,6 +720,67 @@ def _toc_heading_for_fragment(
         else _find_html_node(target, lambda node: bool(re.fullmatch(r"h[1-6]", node.tag)))
     )
     return renderer._text_content(heading).strip() if heading else ""
+
+
+def _collect_fragment_heading_paths(
+    selected: HtmlNode,
+    renderer: "_HtmlMarkdownRenderer",
+) -> dict[str, tuple[str, ...]]:
+    """Map every element id/data-anchor-id in the converted region to an
+    Obsidian heading path, so a same-page ``#fragment`` link can become a
+    wikilink instead of an opaque absolute URL. Preference per id: a
+    heading it sits on or wraps (matches how a page's own nav-TOC anchors
+    usually work), else the nearest heading at or before that point in the
+    document (matches an anchor placed immediately before its heading with
+    no wrapping element — though not one placed as a preceding sibling with
+    no wrapping element and no id on the heading itself; that case resolves
+    to the previous heading instead, a known limitation).
+    """
+
+    stack: list[tuple[int, str]] = []
+    heading_paths: dict[int, tuple[str, ...]] = {}
+    fragment_targets: dict[str, HtmlNode] = {}
+    fallback_paths: dict[str, tuple[str, ...]] = {}
+
+    def visit(node: HtmlNode) -> None:
+        if re.fullmatch(r"h[1-6]", node.tag):
+            level = int(node.tag[1])
+            text = renderer._text_content(node).strip()
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            if text:
+                stack.append((level, text))
+                heading_paths[id(node)] = tuple(entry[1] for entry in stack)
+
+        fragment_id = node.attrs.get("id") or node.attrs.get("data-anchor-id")
+        if fragment_id and fragment_id not in fragment_targets:
+            fragment_targets[fragment_id] = node
+            fallback_paths[fragment_id] = tuple(entry[1] for entry in stack)
+
+        for child in node.children:
+            if isinstance(child, HtmlNode):
+                visit(child)
+
+    def nearest_heading(node: HtmlNode) -> HtmlNode | None:
+        if re.fullmatch(r"h[1-6]", node.tag):
+            return node
+        for child in node.children:
+            if isinstance(child, HtmlNode):
+                found = nearest_heading(child)
+                if found is not None:
+                    return found
+        return None
+
+    visit(selected)
+
+    paths: dict[str, tuple[str, ...]] = {}
+    for fragment_id, target_node in fragment_targets.items():
+        target_heading = nearest_heading(target_node)
+        if target_heading is not None and id(target_heading) in heading_paths:
+            paths[fragment_id] = heading_paths[id(target_heading)]
+        elif fallback_paths.get(fragment_id):
+            paths[fragment_id] = fallback_paths[fragment_id]
+    return paths
 
 
 def _escape_wikilink(value: str) -> str:
@@ -826,24 +933,260 @@ def _generate_toc_from_headings(content: str) -> str:
     return "\n".join(toc_lines)
 
 
+def _find_unfenced_multiline_code_spans(content: str) -> list[tuple[int, int]]:
+    """Report 1-indexed line ranges where a lone backtick code span crosses a
+    blank line. A real ``` fence always closes before content resumes; a
+    single backtick that survives a blank-line paragraph break never really
+    closed, so everything inside — including shell comments that look like
+    "# Step 2" — gets parsed as ordinary Markdown, not code.
+    """
+
+    spans: list[tuple[int, int]] = []
+    in_triple_fence = False
+    open_span_start: int | None = None
+    saw_blank_since_open = False
+
+    lines = content.splitlines()
+    for line_number, line in enumerate(lines, start=1):
+        if _CODE_FENCE_PATTERN.match(line):
+            in_triple_fence = not in_triple_fence
+            continue
+        if in_triple_fence:
+            continue
+        if open_span_start is not None and not line.strip():
+            saw_blank_since_open = True
+        if line.count("`") % 2 == 1:
+            if open_span_start is None:
+                open_span_start = line_number
+                saw_blank_since_open = False
+            else:
+                if saw_blank_since_open:
+                    spans.append((open_span_start, line_number))
+                open_span_start = None
+                saw_blank_since_open = False
+    if open_span_start is not None:
+        spans.append((open_span_start, len(lines)))
+    return spans
+
+
+def _extract_toc_block(content: str) -> str:
+    """Return only the ``> [!toc]`` callout's lines, or "" if there is none."""
+
+    lines = content.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith("> [!toc]")), None)
+    if start is None:
+        return ""
+    end = start + 1
+    while end < len(lines) and lines[end].startswith(">"):
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+_TOC_WIKILINK_PATTERN = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+
+def _find_duplicate_toc_destinations(toc: str) -> list[str]:
+    """Return wikilink destinations that appear more than once in ``toc``."""
+
+    seen: dict[str, int] = {}
+    for match in _TOC_WIKILINK_PATTERN.finditer(toc):
+        destination = match.group(1)
+        seen[destination] = seen.get(destination, 0) + 1
+    return sorted(destination for destination, count in seen.items() if count > 1)
+
+
+def _find_empty_sections(content: str) -> list[str]:
+    """Report heading text for a section with no body before the next
+    sibling/ancestor heading or end of content. A heading immediately
+    followed by a deeper child heading is not empty — the child is its body.
+    """
+
+    lines = content.splitlines()
+    headings: list[tuple[int, int, str]] = []
+    in_fence = False
+    for index, line in enumerate(lines):
+        if _CODE_FENCE_PATTERN.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = _MARKDOWN_HEADING_PATTERN.match(line)
+        if match:
+            headings.append((index, len(match.group(1)), match.group(2).strip()))
+
+    empty: list[str] = []
+    for position, (line_index, level, text) in enumerate(headings):
+        if position + 1 < len(headings):
+            next_index, next_level, _ = headings[position + 1]
+        else:
+            next_index, next_level = len(lines), None
+        if next_level is not None and next_level > level:
+            continue
+        has_body = False
+        fence_state = False
+        for body_line in lines[line_index + 1 : next_index]:
+            if _CODE_FENCE_PATTERN.match(body_line):
+                fence_state = not fence_state
+                has_body = True
+                continue
+            if fence_state:
+                has_body = True
+                continue
+            if body_line.strip():
+                has_body = True
+        if not has_body:
+            empty.append(text)
+    return empty
+
+
+_UPDATE_DATE_PATTERN = re.compile(
+    r"(?:C[aậ]p nh[aậ]t l[aầ]n g[aầ]n đ[aâ]y nh[aấ]t|Last updated)\s*:\s*"
+    r"(\d{4}-\d{2}-\d{2})",
+    re.IGNORECASE,
+)
+
+
+def _extract_reported_update_date(content: str) -> str | None:
+    """Best-effort extraction of a page's self-reported last-updated date,
+    for visibility only — never used to block a write.
+    """
+
+    match = _UPDATE_DATE_PATTERN.search(content)
+    return match.group(1) if match else None
+
+
+_HTML_HEADING_TAG_PATTERN = re.compile(r"h[1-6]")
+_MARKDOWN_TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def _tally_structural_elements(node: HtmlNode, counts: dict[str, int]) -> None:
+    """Accumulate pre/table/heading counts for one node and its descendants,
+    skipping the subtrees the renderer itself drops so an element that is
+    never meant to survive conversion is never counted as lost.
+    """
+
+    if (
+        node.tag in _HtmlMarkdownRenderer._IGNORED_TAGS
+        or node.attrs.get("id") in _HtmlMarkdownRenderer._IGNORED_IDS
+    ):
+        return
+    if node.tag == "pre":
+        counts["pre"] += 1
+    elif node.tag == "table":
+        counts["table"] += 1
+    elif _HTML_HEADING_TAG_PATTERN.fullmatch(node.tag):
+        counts["heading"] += 1
+    for child in node.children:
+        if isinstance(child, HtmlNode):
+            _tally_structural_elements(child, counts)
+
+
+def _count_html_structural_elements(html: str) -> dict[str, int]:
+    """Count structural elements inside the region html_to_markdown() would
+    actually convert — the subtree picked by the shared
+    _select_conversion_root() — not across the whole document. Counting the
+    raw HTML string instead would charge the conversion for every <pre>,
+    <table> and heading that lives in page chrome outside that subtree (or
+    inside an HTML comment or a <script> template), none of which the
+    converter ever sees.
+    """
+
+    counts = {"pre": 0, "table": 0, "heading": 0}
+    _tally_structural_elements(_select_conversion_root(_parse_html_tree(html)), counts)
+    return counts
+
+
+def _count_markdown_structural_elements(content: str) -> dict[str, int]:
+    counts = {"pre": 0, "table": 0, "heading": 0}
+    in_fence = False
+    previous_was_table_row = False
+    for line in content.splitlines():
+        if _CODE_FENCE_PATTERN.match(line):
+            if not in_fence:
+                counts["pre"] += 1
+            in_fence = not in_fence
+            previous_was_table_row = False
+            continue
+        if in_fence:
+            continue
+        if _MARKDOWN_HEADING_PATTERN.match(line):
+            counts["heading"] += 1
+            previous_was_table_row = False
+            continue
+        is_table_row = bool(_MARKDOWN_TABLE_ROW_PATTERN.match(line))
+        if is_table_row and not previous_was_table_row:
+            counts["table"] += 1
+        previous_was_table_row = is_table_row
+    return counts
+
+
+def _find_structural_content_loss(html: str, content: str) -> list[str]:
+    """Compare structural element counts between source HTML and the
+    converted Markdown, to catch content silently dropped inside
+    html_to_markdown() itself — a different failure mode than a malformed
+    Markdown input (Tasks 1-4), which only validates Markdown that has
+    already been produced. Both sides are scoped to the region that was
+    actually converted, so page chrome outside it never counts as loss.
+    """
+
+    html_counts = _count_html_structural_elements(html)
+    markdown_counts = _count_markdown_structural_elements(content)
+    labels = {"pre": "code block", "table": "table", "heading": "heading"}
+    issues: list[str] = []
+    for key, label in labels.items():
+        if markdown_counts[key] < html_counts[key]:
+            issues.append(
+                f"Conversion lost {html_counts[key] - markdown_counts[key]} "
+                f"{label}(s): {html_counts[key]} in the converted region of "
+                f"the source HTML, only "
+                f"{markdown_counts[key]} in the converted Markdown."
+            )
+    return issues
+
+
+def _collect_content_review_issues(
+    content: str, *, source_html: str | None = None
+) -> list[str]:
+    """Return blocking reasons the generated source content should not be
+    published as-is. An empty list means the content passed validation.
+    """
+
+    issues: list[str] = []
+
+    for start_line, end_line in _find_unfenced_multiline_code_spans(content):
+        issues.append(
+            f"A single backtick opened on line {start_line} is not closed "
+            f"before line {end_line}; the code fence is broken and any "
+            "headings inside it were likely misread as real headings."
+        )
+
+    for destination in _find_duplicate_toc_destinations(_extract_toc_block(content)):
+        issues.append(
+            f"Table of contents entry `{destination}` appears more than once; "
+            "Obsidian cannot navigate to a unique heading for it."
+        )
+
+    for heading in _find_empty_sections(content):
+        issues.append(
+            f'Section "{heading}" has no body content before the next heading.'
+        )
+
+    if source_html:
+        issues.extend(_find_structural_content_loss(source_html, content))
+
+    return issues
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
-    parser = _HtmlTreeParser()
-    parser.feed(html)
-    parser.close()
-    root = parser.root
-    selected = (
-        _find_html_node(root, lambda node: node.tag == "article")
-        or _find_html_node(root, lambda node: node.tag == "main")
-        or _find_html_node(root, lambda node: node.attrs.get("role", "").lower() == "main")
-        or _find_html_node(root, lambda node: node.tag == "body")
-        or root
-    )
+    root = _parse_html_tree(html)
+    selected = _select_conversion_root(root)
     renderer = _HtmlMarkdownRenderer(
         base_url,
         heading_offset=heading_offset,
     )
+    renderer._fragment_paths = _collect_fragment_heading_paths(selected, renderer)
     markdown = renderer.render(selected)
     toc = _render_toc_callout(root, selected, renderer)
     markdown = _insert_toc_after_header(markdown, toc)
@@ -1382,6 +1725,119 @@ def extract_with_tavily(url: str, depth: str, timeout: float = 30.0) -> TavilyRe
     return TavilyResult(content=content, depth=depth, request_id=data.get("request_id"))
 
 
+_PUBLIC_HTML_MAX_REDIRECTS = 3
+_PUBLIC_HTML_MAX_BYTES = 10 * 1024 * 1024
+_PUBLIC_HTML_ALLOWED_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+
+
+def _is_public_html_host_safe(url: str) -> tuple[bool, str | None]:
+    """Resolve the host and confirm every resolved address is public.
+    is_safe_public_url_for_tavily() only pattern-matches the literal host
+    string — it never resolves DNS, so a hostname whose DNS record points
+    at a private address, or a numeric-IP shorthand like 127.1, passes it
+    unnoticed. This closes that gap for the public-HTML fetch tier only.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname
+    if not host:
+        return False, "missing host"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        return False, f"could not resolve host: {exc}"
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if not address.is_global:
+            return False, f"resolved address {address} is not public"
+    return True, None
+
+
+class _SafePublicHtmlRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect hop against the same public/private-IP
+    check used for the original URL, cap the number of hops, and never
+    forward cookies or auth headers across a hop. Without this, a URL that
+    is safe at request time could still redirect to a private IP or
+    localhost (SSRF via redirect). Note: like _is_public_html_host_safe(),
+    this resolves and then connects without pinning the resolved address,
+    so an attacker who flips the DNS record between validation and
+    connection (classic DNS rebinding) is not stopped by this alone.
+    """
+
+    def __init__(self) -> None:
+        self.redirect_count = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.redirect_count += 1
+        if self.redirect_count > _PUBLIC_HTML_MAX_REDIRECTS:
+            raise CaptureError("Public HTML fetch exceeded the redirect limit.")
+        safe, reason = is_safe_public_url_for_tavily(newurl)
+        if not safe:
+            raise CaptureError(
+                f"Public HTML fetch redirected to an unsafe URL: {reason}."
+            )
+        host_safe, host_reason = _is_public_html_host_safe(newurl)
+        if not host_safe:
+            raise CaptureError(
+                f"Public HTML fetch redirected to an unsafe URL: {host_reason}."
+            )
+        new_request = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_request is not None:
+            new_request.remove_header("Cookie")
+            new_request.remove_header("Authorization")
+        return new_request
+
+
+def fetch_public_html(url: str, timeout: float = 15.0) -> str:
+    """Fetch a public URL's raw HTML directly, no browser involved. Safe by
+    construction regardless of caller discipline: the *original* URL is
+    gated here with is_safe_public_url_for_tavily() and
+    _is_public_html_host_safe() before any connection is made, and every
+    redirect hop is re-validated the same way. Redirects and response size
+    are capped and cookies/auth headers are never forwarded across a hop.
+    run_capture() runs the same two checks itself before calling this, so it
+    can report "skipped for safety" separately from "the fetch failed"; that
+    makes these checks redundant on that path, which is the point.
+    """
+
+    safe, reason = is_safe_public_url_for_tavily(url)
+    if not safe:
+        raise CaptureError(f"Public HTML fetch refused an unsafe URL: {reason}.")
+    host_safe, host_reason = _is_public_html_host_safe(url)
+    if not host_safe:
+        raise CaptureError(f"Public HTML fetch refused an unsafe URL: {host_reason}.")
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"User-Agent": "web-to-obsidian/0.3.0"},
+    )
+    opener = urllib.request.build_opener(_SafePublicHtmlRedirectHandler())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            content_type = (
+                response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            )
+            if content_type and content_type not in _PUBLIC_HTML_ALLOWED_CONTENT_TYPES:
+                raise CaptureError(
+                    f"Public HTML fetch got an unsupported content type: {content_type}."
+                )
+            raw = response.read(_PUBLIC_HTML_MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        raise CaptureError(f"Public HTML fetch failed with HTTP {exc.code}.") from exc
+    except urllib.error.URLError as exc:
+        raise CaptureError("Public HTML fetch could not connect.") from exc
+    except TimeoutError as exc:
+        raise CaptureError("Public HTML fetch timed out.") from exc
+
+    if len(raw) > _PUBLIC_HTML_MAX_BYTES:
+        raise CaptureError("Public HTML fetch exceeded the size limit.")
+    text = raw.decode("utf-8", errors="replace")
+    if not _looks_like_html_capture(text):
+        raise CaptureError("The fetched page did not contain HTML structure.")
+    return text
+
+
 def _within(root: Path, candidate: Path) -> bool:
     try:
         candidate.relative_to(root)
@@ -1499,6 +1955,80 @@ def _render_note(
         lines.extend(["", "> [!warning] Link-only capture", "> Không lấy được nội dung trang tại thời điểm lưu."])
     lines.extend(["", PERSONAL_NOTES_START, "## Ghi chú của tôi", ""])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_review_note(
+    *,
+    title: str,
+    source_id: str,
+    source_url: str,
+    canonical_url: str,
+    source_url_redacted: bool,
+    captured: str,
+    capture_method: str,
+    review_issues: list[str],
+    reported_update_date: str | None,
+    content: str,
+    tavily_request_id: str | None,
+) -> str:
+    lines = [
+        "---",
+        "type: capture-review",
+        "status: needs-review",
+        f"source_id: {_yaml_string(source_id)}",
+        f"title: {_yaml_string(title)}",
+        f"source_url: {_yaml_string(source_url)}",
+        f"canonical_url: {_yaml_string(canonical_url)}",
+        f"source_url_redacted: {'true' if source_url_redacted else 'false'}",
+        f"captured: {_yaml_string(captured)}",
+        f"capture_method: {capture_method}",
+    ]
+    if reported_update_date:
+        lines.append(f"reported_update_date: {_yaml_string(reported_update_date)}")
+    if tavily_request_id:
+        lines.append(f"tavily_request_id: {_yaml_string(tavily_request_id)}")
+    lines.extend(_yaml_list("review_issues", review_issues))
+    lines.extend(
+        [
+            "---",
+            "",
+            f"# {title}",
+            "",
+            "> [!warning] Needs review before use",
+            "> This capture failed validation and was not written to the main note.",
+        ]
+    )
+    for issue in review_issues:
+        lines.append(f"> - {issue}")
+    lines.extend(["", SOURCE_CONTENT_START, content.strip(), SOURCE_CONTENT_END])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_review_note(
+    vault: Path,
+    folder: str,
+    captured_date: str,
+    filename_title: str,
+    source_id: str,
+    note_text: str,
+) -> Path:
+    review_folder = _resolve_within(vault, vault / folder / "Needs Review")
+    if review_folder is None:
+        raise CaptureError("Needs Review folder must stay inside the vault.")
+    review_folder.mkdir(parents=True, exist_ok=True)
+    for candidate in _destination_candidates(
+        review_folder, captured_date, filename_title, source_id
+    ):
+        resolved_candidate = _resolve_within(vault, candidate)
+        if resolved_candidate is None:
+            raise CaptureError("Needs Review note must stay inside the vault.")
+        try:
+            with open(resolved_candidate, "x", encoding="utf-8", newline="\n") as handle:
+                handle.write(note_text)
+        except FileExistsError:
+            continue
+        return resolved_candidate
+    raise CaptureError("Could not publish a Needs Review note without overwrite risk.")
 
 
 def _destination_candidates(
@@ -1708,6 +2238,36 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
         )
     selection = _read_optional_file(args.selection_file)
     had_browser_content = bool(content or selection)
+
+    fetched_public_html = False
+    if not had_browser_content and getattr(args, "fetch_public_html", False):
+        safe, reason = is_safe_public_url_for_tavily(args.url)
+        host_safe, host_reason = (
+            _is_public_html_host_safe(safe_url.source_url) if safe else (True, None)
+        )
+        if not safe:
+            warnings.append(f"Public HTML fetch skipped: {reason}.")
+        elif not host_safe:
+            warnings.append(f"Public HTML fetch skipped: {host_reason}.")
+        else:
+            try:
+                fetched_html = fetch_public_html(safe_url.source_url, timeout=args.timeout)
+            except CaptureError as exc:
+                warnings.append(f"Public HTML fetch failed: {exc}")
+            else:
+                converted = html_to_markdown(
+                    fetched_html, safe_url.source_url, heading_offset=1
+                )
+                if converted:
+                    content = converted
+                    html_content = fetched_html
+                    rich_html = True
+                    fetched_public_html = True
+                else:
+                    warnings.append(
+                        "Public HTML fetch succeeded but produced no usable content."
+                    )
+
     tavily_request_id: str | None = None
     tavily_depth: str | None = None
 
@@ -1750,6 +2310,8 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             capture_method = "hybrid"
         else:
             capture_method = f"tavily-{tavily_depth}"
+    elif fetched_public_html:
+        capture_method = "public-html"
 
     parsed = urllib.parse.urlsplit(canonical_url)
     platform = args.platform.strip() if args.platform else parsed.hostname or ""
@@ -1757,6 +2319,57 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
     title = args.title.strip() or platform or source_id
     filename_title = sanitize_filename(title, source_id)
     captured_date = captured[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", captured) else datetime.now().date().isoformat()
+
+    review_issues = (
+        _collect_content_review_issues(
+            content, source_html=html_content if rich_html else None
+        )
+        if content
+        else []
+    )
+    reported_update_date = _extract_reported_update_date(content) if content else None
+    if review_issues:
+        if args.dry_run:
+            return {
+                "status": "needs-review",
+                "source_id": source_id,
+                "canonical_url": canonical_url,
+                "source_url_redacted": safe_url.redacted,
+                "capture_method": capture_method,
+                "link_only": not bool(content or selection),
+                "review_issues": review_issues,
+                "reported_update_date": reported_update_date,
+                "path": None,
+                "warnings": warnings,
+            }
+        review_note = _render_review_note(
+            title=title,
+            source_id=source_id,
+            source_url=safe_url.source_url,
+            canonical_url=canonical_url,
+            source_url_redacted=safe_url.redacted,
+            captured=captured,
+            capture_method=capture_method,
+            review_issues=review_issues,
+            reported_update_date=reported_update_date,
+            content=content,
+            tavily_request_id=tavily_request_id,
+        )
+        review_path = _write_review_note(
+            vault, args.folder, captured_date, filename_title, source_id, review_note
+        )
+        return {
+            "status": "needs-review",
+            "source_id": source_id,
+            "canonical_url": canonical_url,
+            "source_url_redacted": safe_url.redacted,
+            "capture_method": capture_method,
+            "link_only": not bool(content or selection),
+            "review_issues": review_issues,
+            "reported_update_date": reported_update_date,
+            "path": str(review_path),
+            "warnings": warnings,
+        }
 
     destination_folder_candidate = (
         duplicate.parent
@@ -1812,6 +2425,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             "source_url_redacted": safe_url.redacted,
             "capture_method": capture_method,
             "link_only": not bool(content or selection),
+            "reported_update_date": reported_update_date,
             "path": str(destination),
             "warnings": warnings,
         }
@@ -1842,6 +2456,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
                     "source_url_redacted": safe_url.redacted,
                     "capture_method": capture_method,
                     "link_only": False,
+                    "reported_update_date": reported_update_date,
                     "path": str(duplicate.resolve()),
                     "warnings": warnings,
                 }
@@ -1904,6 +2519,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
         "source_url_redacted": safe_url.redacted,
         "capture_method": capture_method,
         "link_only": not bool(content or selection),
+        "reported_update_date": reported_update_date,
         "path": str(destination.resolve()),
         "warnings": warnings,
     }
@@ -1967,6 +2583,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--folder", default="00 Inbox/Web", help="Destination relative to vault root")
     parser.add_argument("--captured", default="", help="ISO timestamp; defaults to local current time")
     parser.add_argument("--tavily", choices=("off", "auto", "basic", "advanced"), default="off")
+    parser.add_argument(
+        "--fetch-public-html",
+        action="store_true",
+        help=(
+            "When no content or selection is supplied, fetch the public URL's "
+            "raw HTML directly (no browser) before falling back to Tavily; "
+            "skipped for private, local, or credentialed URLs"
+        ),
+    )
     parser.add_argument("--min-content-chars", type=int, default=400)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument(

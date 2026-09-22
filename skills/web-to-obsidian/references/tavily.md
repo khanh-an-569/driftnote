@@ -10,6 +10,12 @@ For a public page when no rich browser capture is available, use the connected T
 
 Với trang công khai mà không lấy được HTML từ trình duyệt, ưu tiên Tavily Extract đã kết nối nếu khả dụng. Lưu Markdown trả về thành tệp UTF-8 tạm rồi đưa vào helper bằng `--content-file`, `--capture-method tavily-basic` và `--tavily off`. Cách này dùng tài khoản kết nối, không yêu cầu khóa API cục bộ.
 
+## Ordering / Thứ tự ưu tiên
+
+Tavily Markdown is a flattened conversion (`format=markdown`) with no structural guarantee — prefer an authorized browser DOM/HTML capture, then `--fetch-public-html` for a public URL the browser cannot export, and use Tavily only when both of those are unavailable. Markdown do Tavily trả về (`format=markdown`) là bản chuyển đổi đã làm phẳng, không bảo đảm giữ cấu trúc — hãy ưu tiên DOM/HTML từ trình duyệt đã cấp quyền, sau đó `--fetch-public-html` cho URL công khai mà trình duyệt không xuất được, và chỉ dùng Tavily khi cả hai cách trên đều không khả dụng.
+
+https://docs.tavily.com/documentation/api-reference/endpoint/extract
+
 ## Extraction policy / Chính sách trích xuất
 
 - Start with `basic` and `format=markdown`. / Bắt đầu bằng `basic` và `format=markdown`.

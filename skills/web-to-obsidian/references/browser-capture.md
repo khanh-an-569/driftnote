@@ -17,6 +17,8 @@ Use browser-visible content instead of Tavily for authenticated, personalized, p
 
 Dùng nội dung hiển thị trong trình duyệt thay cho Tavily đối với trang cần xác thực, được cá nhân hóa, riêng tư, local hoặc có paywall. Nếu trình duyệt không thể cung cấp nội dung một cách đáng tin cậy, hãy lưu note chỉ có liên kết hoặc đề nghị người dùng xuất dữ liệu; không tuyên bố capture đã đầy đủ.
 
+When the browser cannot export DOM/HTML for a public page, try `--fetch-public-html` before reaching for Tavily — see [tavily.md](tavily.md) for the full ordering. Khi trình duyệt không xuất được DOM/HTML cho một trang công khai, hãy thử `--fetch-public-html` trước khi dùng Tavily — xem [tavily.md](tavily.md) để biết thứ tự đầy đủ.
+
 ## Social post permalinks / Permalink bài đăng mạng xã hội
 
 For a Facebook or Instagram selection classified as `social`, the source URL must identify the selected post rather than the surrounding feed, profile, explore, or search page. A generic URL would assign unrelated posts the same `canonical_url` and duplicate identity.
