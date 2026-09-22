@@ -888,6 +888,50 @@ def _find_duplicate_toc_destinations(toc: str) -> list[str]:
     return sorted(destination for destination, count in seen.items() if count > 1)
 
 
+def _find_empty_sections(content: str) -> list[str]:
+    """Report heading text for a section with no body before the next
+    sibling/ancestor heading or end of content. A heading immediately
+    followed by a deeper child heading is not empty — the child is its body.
+    """
+
+    lines = content.splitlines()
+    headings: list[tuple[int, int, str]] = []
+    in_fence = False
+    for index, line in enumerate(lines):
+        if _CODE_FENCE_PATTERN.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = _MARKDOWN_HEADING_PATTERN.match(line)
+        if match:
+            headings.append((index, len(match.group(1)), match.group(2).strip()))
+
+    empty: list[str] = []
+    for position, (line_index, level, text) in enumerate(headings):
+        if position + 1 < len(headings):
+            next_index, next_level, _ = headings[position + 1]
+        else:
+            next_index, next_level = len(lines), None
+        if next_level is not None and next_level > level:
+            continue
+        has_body = False
+        fence_state = False
+        for body_line in lines[line_index + 1 : next_index]:
+            if _CODE_FENCE_PATTERN.match(body_line):
+                fence_state = not fence_state
+                has_body = True
+                continue
+            if fence_state:
+                has_body = True
+                continue
+            if body_line.strip():
+                has_body = True
+        if not has_body:
+            empty.append(text)
+    return empty
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 

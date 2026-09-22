@@ -1617,6 +1617,32 @@ Actual personal note.
             [(3, 5)],
         )
 
+    def test_finds_heading_with_no_body_before_next_sibling_heading(self) -> None:
+        content = (
+            "## Giá\n\n"
+            "## Bước tiếp theo\n\n"
+            "Trừ phi có lưu ý khác...\n"
+        )
+        self.assertEqual(save_capture._find_empty_sections(content), ["Giá"])
+
+    def test_does_not_flag_a_parent_heading_that_only_contains_a_child_heading(
+        self,
+    ) -> None:
+        content = (
+            "## Các điểm hạn chế\n\n"
+            "### Giới hạn số lượng yêu cầu\n\n"
+            "Aware API có các giới hạn sau.\n"
+        )
+        self.assertEqual(save_capture._find_empty_sections(content), [])
+
+    def test_flags_the_final_heading_when_nothing_follows_it(self) -> None:
+        content = "## Intro\n\nBody text.\n\n## Trailing\n"
+        self.assertEqual(save_capture._find_empty_sections(content), ["Trailing"])
+
+    def test_does_not_flag_a_heading_followed_only_by_a_code_fence_body(self) -> None:
+        content = "## Example\n\n```bash\necho hi\n```\n\n## Next\n\nBody.\n"
+        self.assertEqual(save_capture._find_empty_sections(content), [])
+
 
 if __name__ == "__main__":
     unittest.main()
