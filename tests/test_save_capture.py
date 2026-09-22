@@ -1758,6 +1758,83 @@ Actual personal note.
             self.assertEqual(result["status"], "created")
             self.assertEqual(result["reported_update_date"], "2026-08-19")
 
+    def test_gemini_file_search_style_capture_needs_review(self) -> None:
+        """Regression test for the 2026-09-22 Gemini File Search note: a
+        Tavily capture with an unfenced multi-line REST block, duplicate
+        Python subsections under one heading, and an empty trailing section.
+        """
+
+        content = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#Tìm kiếm tệp]]\n"
+            "> - [[#Nhập tệp]]\n"
+            ">   - [[#Nhập tệp#Python|Python]]\n"
+            ">   - [[#Nhập tệp#Python|Python]]\n\n"
+            "# Tìm kiếm tệp\n\n"
+            "Gemini API cho phép tính năng Tạo sinh tăng cường truy xuất.\n\n"
+            "### REST\n\n"
+            "`# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com/stores\"\n\n"
+            "# 2. Upload directly to File Search store\n\n"
+            "curl -X POST \"https://example.com/upload\"`\n\n"
+            "## Nhập tệp\n\n"
+            "### Python\n\nimport1_example()\n\n"
+            "### Python\n\nimport2_example()\n\n"
+            "## Giá\n\n"
+            "## Bước tiếp theo\n\n"
+            "Trừ phi có lưu ý khác...\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(content, encoding="utf-8")
+            args = make_args(
+                temp_dir,
+                url="https://ai.google.dev/gemini-api/docs/file-search",
+                content_file=str(content_file),
+                capture_method="tavily-basic",
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "needs-review")
+            reasons = " ".join(result["review_issues"])
+            self.assertIn("broken", reasons)
+            self.assertIn("Giá", reasons)
+            review_note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("type: capture-review", review_note)
+
+    def test_gemini_file_search_style_capture_succeeds_once_fixed(self) -> None:
+        """Same shape as the regression above, but with a valid triple-backtick
+        fence, one Python subsection, and real trailing-section content —
+        proves the gate does not block a correctly structured capture.
+        """
+
+        content = (
+            "# Tìm kiếm tệp\n\n"
+            "Gemini API cho phép tính năng Tạo sinh tăng cường truy xuất.\n\n"
+            "### REST\n\n"
+            "```bash\n"
+            "# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com/stores\"\n\n"
+            "# 2. Upload directly to File Search store\n"
+            "curl -X POST \"https://example.com/upload\"\n"
+            "```\n\n"
+            "## Nhập tệp\n\n"
+            "### Python\n\nimport_example()\n\n"
+            "## Giá\n\nGiá tính theo mã thông báo đầu vào.\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(content, encoding="utf-8")
+            args = make_args(
+                temp_dir,
+                url="https://ai.google.dev/gemini-api/docs/file-search",
+                content_file=str(content_file),
+                capture_method="tavily-basic",
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "created")
+
 
 if __name__ == "__main__":
     unittest.main()
