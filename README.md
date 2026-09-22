@@ -10,19 +10,56 @@ Bản tiếng Việt đầy đủ được duy trì song song trong `README.vi.m
 
 ## TL;DR
 
-**What it does:** save a web page or browser tab into a traceable Obsidian note (`web-to-obsidian`), optionally polish its Markdown/CSS formatting (`obsidian-clip-beautifier`), and optionally turn a captured note into a brainstorm-style Excalidraw diagram (`obsidian-excalidraw-mindmap`, *prototype*).
+> **Driftnote** brings web content into Obsidian, keeps its source for reference, and helps you format or diagram the saved note.
 
-**Install:** clone the repo, then register it as a plugin for your runtime — see "Install from public GitHub" below for the full Codex flow. For Claude Code:
+### The plugin includes three skills
+
+- **`web-to-obsidian`:** save a tab, selected text, or a public URL as a note in a local Obsidian vault; skip duplicates.
+- **`obsidian-clip-beautifier`:** set up and check Markdown/CSS formatting for web clips.
+- **`obsidian-excalidraw-mindmap`:** turn a saved note into an Excalidraw mind map; **experimental**.
+
+### Want AI to install it from a cloned folder?
+
+Paste this into **Codex** or **Claude Code**, replacing the two placeholders in `<...>`:
+
+```text
+Install the Driftnote plugin for <ChatGPT desktop/Codex or Claude Code> from the repository I cloned at <full path to driftnote>. Read README.md, follow the installation steps for that platform in order, check that all three skills are available, and report any remaining vault configuration steps. Do not copy or disclose .env or secrets.
+```
+
+### Manual installation — in order
+
+**1. Clone the repository** and note the full path to the new folder:
 
 ```powershell
 git clone https://github.com/khanh-an-569/driftnote.git
-claude plugin marketplace add .\driftnote
-claude plugin install driftnote@driftnote
 ```
 
-**Use:** open a page in your browser, then in chat send `@web-to-obsidian` (ChatGPT), `$web-to-obsidian` (Codex), or `/driftnote:web-to-obsidian` (Claude Code) with what you want saved. See "Use from the ChatGPT browser extension" below for full examples and configuration.
+**2. Choose where to use the plugin:**
 
-Everything below this point is the full reference — setup details, privacy model, configuration, and all three skills.
+- **ChatGPT desktop / Codex:** in a terminal, run `codex plugin marketplace add "<full path to driftnote>"`. Restart ChatGPT desktop, open **Plugins Directory**, select the **driftnote** marketplace, and click **Install**. Start a new chat to use it.
+- **Claude Code:** run `claude plugin marketplace add "<full path to driftnote>"`, then `claude plugin install driftnote@driftnote`. Start a new session or follow the prompt to reload the plugin.
+
+**3. Configure before saving a note:**
+
+- Install Python 3.10 or later.
+- Create `.env` from `.env.example` and set these three environment variables:
+
+```dotenv
+WEB_TO_OBSIDIAN_VAULT_PATH=
+OBSIDIAN_VAULT_PATH=
+TAVILY_API_KEY=
+```
+
+### Quick start
+
+| Platform | Command |
+| --- | --- |
+| **ChatGPT browser extension / ChatGPT app / Codex** | Call `$web-to-obsidian` or enter `@driftnote save this`. |
+| **Claude Code** | Call `/driftnote:web-to-obsidian`. |
+
+To save the current tab or selected text directly in ChatGPT, install the ChatGPT browser extension for your browser. Then use one of the commands above in the extension or ChatGPT app.
+
+The sections below cover setup, configuration, privacy, and all three skills in detail.
 
 ---
 
