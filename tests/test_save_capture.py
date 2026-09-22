@@ -43,8 +43,16 @@ class FakeHttpResponse:
     def __exit__(self, *args: object) -> None:
         return None
 
-    def read(self) -> bytes:
-        return self.payload
+    def read(self, amt: int | None = None) -> bytes:
+        return self.payload if amt is None else self.payload[:amt]
+
+
+class _StubOpener:
+    def __init__(self, response: FakeHttpResponse) -> None:
+        self._response = response
+
+    def open(self, request: object, timeout: object = None) -> FakeHttpResponse:
+        return self._response
 
 
 def make_args(vault: str, **overrides: object) -> argparse.Namespace:
@@ -74,6 +82,7 @@ def make_args(vault: str, **overrides: object) -> argparse.Namespace:
         "allow_text_only": False,
         "refresh_existing": False,
         "dry_run": False,
+        "fetch_public_html": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -1834,6 +1843,173 @@ Actual personal note.
             )
             result = save_capture.run_capture(args)
             self.assertEqual(result["status"], "created")
+
+    def test_safe_redirect_handler_blocks_redirect_to_private_ip(self) -> None:
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request("https://example.com/docs")
+        with self.assertRaisesRegex(save_capture.CaptureError, "unsafe URL"):
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "http://127.0.0.1/admin"
+            )
+
+    def test_safe_redirect_handler_blocks_more_than_three_redirects(self) -> None:
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request("https://example.com/docs")
+        for _ in range(3):
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.com/next"
+            )
+        with self.assertRaisesRegex(save_capture.CaptureError, "redirect limit"):
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.com/next"
+            )
+
+    def test_safe_redirect_handler_strips_cookie_and_authorization_headers(self) -> None:
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request(
+            "https://example.com/docs",
+            headers={"Cookie": "session=abc", "Authorization": "Bearer xyz"},
+        )
+        new_request = handler.redirect_request(
+            request, None, 302, "Found", {}, "https://example.com/next"
+        )
+        self.assertNotIn("Cookie", new_request.headers)
+        self.assertNotIn("Authorization", new_request.headers)
+
+    def test_fetch_public_html_returns_html_text_on_success(self) -> None:
+        html = b"<html><body><main><h1>Docs</h1><p>Real content.</p></main></body></html>"
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        with mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            result = save_capture.fetch_public_html(
+                "https://example.com/docs", timeout=5.0
+            )
+        self.assertIn("Real content.", result)
+
+    def test_fetch_public_html_rejects_a_non_html_response(self) -> None:
+        response = FakeHttpResponse(b"just plain text, no markup at all")
+        response.headers = {}
+        with mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "HTML structure"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_rejects_unsupported_content_type(self) -> None:
+        response = FakeHttpResponse(b"%PDF-1.4 binary data")
+        response.headers = {"Content-Type": "application/pdf"}
+        with mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "content type"):
+                save_capture.fetch_public_html("https://example.com/file.pdf")
+
+    def test_fetch_public_html_rejects_a_response_over_the_size_limit(self) -> None:
+        oversized = (
+            b"<html><body>"
+            + b"a" * save_capture._PUBLIC_HTML_MAX_BYTES
+            + b"</body></html>"
+        )
+        response = FakeHttpResponse(oversized)
+        response.headers = {"Content-Type": "text/html"}
+        with mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "size limit"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_wraps_connection_errors(self) -> None:
+        class _RaisingOpener:
+            def open(self, request: object, timeout: object = None) -> None:
+                raise urllib.error.URLError("refused")
+
+        with mock.patch.object(
+            save_capture.urllib.request, "build_opener", return_value=_RaisingOpener()
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "could not connect"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_tier_converts_dom_and_marks_capture_method(self) -> None:
+        html = (
+            b"<html><body><main>"
+            b"<h1>Docs</h1><p>Real content from the live page.</p>"
+            b"</main></body></html>"
+        )
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html"}
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            args = make_args(
+                temp_dir,
+                content_file=None,
+                capture_method="manual",
+                fetch_public_html=True,
+            )
+            result = save_capture.run_capture(args)
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["capture_method"], "public-html")
+        note = Path(str(result["path"])).read_text(encoding="utf-8")
+        self.assertIn("Real content from the live page.", note)
+
+    def test_fetch_public_html_tier_skips_private_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture.urllib.request, "build_opener"
+        ) as build_opener:
+            args = make_args(
+                temp_dir,
+                url="http://localhost/internal",
+                content_file=None,
+                fetch_public_html=True,
+            )
+            result = save_capture.run_capture(args)
+        build_opener.assert_not_called()
+        self.assertTrue(result["link_only"])
+
+    def test_fetch_public_html_failure_falls_back_to_tavily_auto(self) -> None:
+        tavily_payload = json.dumps(
+            {
+                "results": [
+                    {"raw_content": "# Intro\n\nFallback content from Tavily.\n"}
+                ],
+                "request_id": "req-1",
+            }
+        ).encode("utf-8")
+
+        class _FailingOpener:
+            def open(self, request: object, timeout: object = None) -> None:
+                raise urllib.error.URLError("connection refused")
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            save_capture.os.environ, {"TAVILY_API_KEY": "test-key"}
+        ), mock.patch.object(
+            save_capture.urllib.request, "build_opener", return_value=_FailingOpener()
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "urlopen",
+            return_value=FakeHttpResponse(tavily_payload),
+        ):
+            args = make_args(
+                temp_dir,
+                content_file=None,
+                fetch_public_html=True,
+                tavily="auto",
+            )
+            result = save_capture.run_capture(args)
+        self.assertEqual(result["status"], "created")
+        self.assertTrue(result["capture_method"].startswith("tavily-"))
 
 
 if __name__ == "__main__":

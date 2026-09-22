@@ -79,7 +79,15 @@ WINDOWS_RESERVED_NAMES = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 CONTENT_TYPES = ("article", "news", "bookmark", "music", "video", "podcast", "social", "other")
-CAPTURE_METHODS = ("selection", "chrome", "tavily-basic", "tavily-advanced", "hybrid", "manual")
+CAPTURE_METHODS = (
+    "selection",
+    "chrome",
+    "tavily-basic",
+    "tavily-advanced",
+    "hybrid",
+    "manual",
+    "public-html",
+)
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 CSS_CLASS_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SKILL_VAULT_ENV_NAME = "WEB_TO_OBSIDIAN_VAULT_PATH"
@@ -1530,6 +1538,78 @@ def extract_with_tavily(url: str, depth: str, timeout: float = 30.0) -> TavilyRe
     if not content:
         raise CaptureError("Tavily returned no page content.")
     return TavilyResult(content=content, depth=depth, request_id=data.get("request_id"))
+
+
+_PUBLIC_HTML_MAX_REDIRECTS = 3
+_PUBLIC_HTML_MAX_BYTES = 10 * 1024 * 1024
+_PUBLIC_HTML_ALLOWED_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+
+
+class _SafePublicHtmlRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect hop against the same public/private-IP
+    check used for the original URL, cap the number of hops, and never
+    forward cookies or auth headers across a hop. Without this, a URL that
+    is safe at request time could still redirect to a private IP or
+    localhost (SSRF via redirect, including DNS rebinding).
+    """
+
+    def __init__(self) -> None:
+        self.redirect_count = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.redirect_count += 1
+        if self.redirect_count > _PUBLIC_HTML_MAX_REDIRECTS:
+            raise CaptureError("Public HTML fetch exceeded the redirect limit.")
+        safe, reason = is_safe_public_url_for_tavily(newurl)
+        if not safe:
+            raise CaptureError(
+                f"Public HTML fetch redirected to an unsafe URL: {reason}."
+            )
+        new_request = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_request is not None:
+            new_request.remove_header("Cookie")
+            new_request.remove_header("Authorization")
+        return new_request
+
+
+def fetch_public_html(url: str, timeout: float = 15.0) -> str:
+    """Fetch a public URL's raw HTML directly, no browser involved. Callers
+    must gate the *original* URL with is_safe_public_url_for_tavily() first;
+    this function re-validates every redirect hop on top of that, caps
+    redirects and response size, and never forwards cookies or auth headers.
+    """
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"User-Agent": "web-to-obsidian/0.3.0"},
+    )
+    opener = urllib.request.build_opener(_SafePublicHtmlRedirectHandler())
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            content_type = (
+                response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            )
+            if content_type and not content_type.startswith(
+                _PUBLIC_HTML_ALLOWED_CONTENT_TYPES
+            ):
+                raise CaptureError(
+                    f"Public HTML fetch got an unsupported content type: {content_type}."
+                )
+            raw = response.read(_PUBLIC_HTML_MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        raise CaptureError(f"Public HTML fetch failed with HTTP {exc.code}.") from exc
+    except urllib.error.URLError as exc:
+        raise CaptureError("Public HTML fetch could not connect.") from exc
+    except TimeoutError as exc:
+        raise CaptureError("Public HTML fetch timed out.") from exc
+
+    if len(raw) > _PUBLIC_HTML_MAX_BYTES:
+        raise CaptureError("Public HTML fetch exceeded the size limit.")
+    text = raw.decode("utf-8", errors="replace")
+    if not _looks_like_html_capture(text):
+        raise CaptureError("The fetched page did not contain HTML structure.")
+    return text
 
 
 def _within(root: Path, candidate: Path) -> bool:
