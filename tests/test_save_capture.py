@@ -1542,6 +1542,45 @@ Actual personal note.
         self.assertIn("[[#Real heading one]]", toc)
         self.assertIn("[[#Real heading one#Real heading two|Real heading two]]", toc)
 
+    def test_finds_broken_single_backtick_span_crossing_blank_line(self) -> None:
+        content = (
+            "### REST\n\n"
+            "`# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com\"\n\n"
+            "# 2. Upload directly to File Search store\n\n"
+            "curl -X POST \"https://example.com/upload\"`\n"
+        )
+        spans = save_capture._find_unfenced_multiline_code_spans(content)
+        self.assertEqual(spans, [(3, 8)])
+
+    def test_ignores_balanced_single_backtick_terms_on_their_own_line(self) -> None:
+        content = (
+            "## Section\n\n"
+            "`gemini-embedding-001`\n\n"
+            "## Next section\n\n"
+            "Body text.\n"
+        )
+        self.assertEqual(save_capture._find_unfenced_multiline_code_spans(content), [])
+
+    def test_ignores_spans_already_inside_triple_backtick_fences(self) -> None:
+        content = (
+            "## Section\n\n"
+            "```text\n"
+            "`half open\n\n"
+            "still inside fence\n"
+            "```\n\n"
+            "## Next section\n\n"
+            "Body text.\n"
+        )
+        self.assertEqual(save_capture._find_unfenced_multiline_code_spans(content), [])
+
+    def test_flags_a_span_left_open_at_end_of_content(self) -> None:
+        content = "## Section\n\n`opened but never closed\n\nmore text\n"
+        self.assertEqual(
+            save_capture._find_unfenced_multiline_code_spans(content),
+            [(3, 5)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -826,6 +826,42 @@ def _generate_toc_from_headings(content: str) -> str:
     return "\n".join(toc_lines)
 
 
+def _find_unfenced_multiline_code_spans(content: str) -> list[tuple[int, int]]:
+    """Report 1-indexed line ranges where a lone backtick code span crosses a
+    blank line. A real ``` fence always closes before content resumes; a
+    single backtick that survives a blank-line paragraph break never really
+    closed, so everything inside — including shell comments that look like
+    "# Step 2" — gets parsed as ordinary Markdown, not code.
+    """
+
+    spans: list[tuple[int, int]] = []
+    in_triple_fence = False
+    open_span_start: int | None = None
+    saw_blank_since_open = False
+
+    lines = content.splitlines()
+    for line_number, line in enumerate(lines, start=1):
+        if _CODE_FENCE_PATTERN.match(line):
+            in_triple_fence = not in_triple_fence
+            continue
+        if in_triple_fence:
+            continue
+        if open_span_start is not None and not line.strip():
+            saw_blank_since_open = True
+        if line.count("`") % 2 == 1:
+            if open_span_start is None:
+                open_span_start = line_number
+                saw_blank_since_open = False
+            else:
+                if saw_blank_since_open:
+                    spans.append((open_span_start, line_number))
+                open_span_start = None
+                saw_blank_since_open = False
+    if open_span_start is not None:
+        spans.append((open_span_start, len(lines)))
+    return spans
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
