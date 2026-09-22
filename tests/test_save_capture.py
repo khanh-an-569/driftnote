@@ -1688,6 +1688,76 @@ Actual personal note.
         )
         self.assertEqual(save_capture._collect_content_review_issues(content), [])
 
+    def test_run_capture_writes_a_review_draft_instead_of_the_main_note(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "## REST\n\n"
+                "`# 1. Create a File Search store\n"
+                "curl -X POST \"https://example.com\"\n\n"
+                "# 2. Upload directly\n\n"
+                "curl -X POST \"https://example.com/upload\"`\n\n"
+                "## Two\n\nBody.\n\n"
+                "## Three\n\nBody.\n",
+                encoding="utf-8",
+            )
+            args = make_args(
+                temp_dir,
+                content_file=str(content_file),
+                capture_method="tavily-basic",
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "needs-review")
+            self.assertTrue(result["review_issues"])
+            review_path = Path(str(result["path"]))
+            self.assertTrue(review_path.is_relative_to(Path(temp_dir) / "00 Inbox" / "Web" / "Needs Review"))
+            review_note = review_path.read_text(encoding="utf-8")
+            self.assertIn("type: capture-review", review_note)
+            self.assertIn("status: needs-review", review_note)
+            main_notes = [
+                path
+                for path in Path(temp_dir).rglob("*.md")
+                if "type: source" in path.read_text(encoding="utf-8")
+            ]
+            self.assertEqual(main_notes, [])
+
+    def test_run_capture_needs_review_dry_run_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "## Giá\n\n## Bước tiếp theo\n\nBody.\n\n## Third\n\nBody.\n",
+                encoding="utf-8",
+            )
+            args = make_args(
+                temp_dir,
+                content_file=str(content_file),
+                allow_text_only=True,
+                dry_run=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "needs-review")
+            self.assertIsNone(result["path"])
+            self.assertEqual(list(Path(temp_dir).rglob("*.md")), [content_file])
+
+    def test_run_capture_reports_source_update_date_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "## Intro\n\nBody one.\n\n"
+                "## Details\n\nBody two.\n\n"
+                "Cập nhật lần gần đây nhất: 2026-08-19 UTC.\n",
+                encoding="utf-8",
+            )
+            args = make_args(
+                temp_dir, content_file=str(content_file), allow_text_only=True
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "created")
+            self.assertEqual(result["reported_update_date"], "2026-08-19")
+
 
 if __name__ == "__main__":
     unittest.main()

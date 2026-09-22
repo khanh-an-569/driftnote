@@ -1651,6 +1651,80 @@ def _render_note(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _render_review_note(
+    *,
+    title: str,
+    source_id: str,
+    source_url: str,
+    canonical_url: str,
+    source_url_redacted: bool,
+    captured: str,
+    capture_method: str,
+    review_issues: list[str],
+    reported_update_date: str | None,
+    content: str,
+    tavily_request_id: str | None,
+) -> str:
+    lines = [
+        "---",
+        "type: capture-review",
+        "status: needs-review",
+        f"source_id: {_yaml_string(source_id)}",
+        f"title: {_yaml_string(title)}",
+        f"source_url: {_yaml_string(source_url)}",
+        f"canonical_url: {_yaml_string(canonical_url)}",
+        f"source_url_redacted: {'true' if source_url_redacted else 'false'}",
+        f"captured: {_yaml_string(captured)}",
+        f"capture_method: {capture_method}",
+    ]
+    if reported_update_date:
+        lines.append(f"reported_update_date: {_yaml_string(reported_update_date)}")
+    if tavily_request_id:
+        lines.append(f"tavily_request_id: {_yaml_string(tavily_request_id)}")
+    lines.extend(_yaml_list("review_issues", review_issues))
+    lines.extend(
+        [
+            "---",
+            "",
+            f"# {title}",
+            "",
+            "> [!warning] Needs review before use",
+            "> This capture failed validation and was not written to the main note.",
+        ]
+    )
+    for issue in review_issues:
+        lines.append(f"> - {issue}")
+    lines.extend(["", SOURCE_CONTENT_START, content.strip(), SOURCE_CONTENT_END])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_review_note(
+    vault: Path,
+    folder: str,
+    captured_date: str,
+    filename_title: str,
+    source_id: str,
+    note_text: str,
+) -> Path:
+    review_folder = _resolve_within(vault, vault / folder / "Needs Review")
+    if review_folder is None:
+        raise CaptureError("Needs Review folder must stay inside the vault.")
+    review_folder.mkdir(parents=True, exist_ok=True)
+    for candidate in _destination_candidates(
+        review_folder, captured_date, filename_title, source_id
+    ):
+        resolved_candidate = _resolve_within(vault, candidate)
+        if resolved_candidate is None:
+            raise CaptureError("Needs Review note must stay inside the vault.")
+        try:
+            with open(resolved_candidate, "x", encoding="utf-8", newline="\n") as handle:
+                handle.write(note_text)
+        except FileExistsError:
+            continue
+        return resolved_candidate
+    raise CaptureError("Could not publish a Needs Review note without overwrite risk.")
+
+
 def _destination_candidates(
     destination_folder: Path,
     captured_date: str,
@@ -1908,6 +1982,51 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
     filename_title = sanitize_filename(title, source_id)
     captured_date = captured[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", captured) else datetime.now().date().isoformat()
 
+    review_issues = _collect_content_review_issues(content) if content else []
+    reported_update_date = _extract_reported_update_date(content) if content else None
+    if review_issues:
+        if args.dry_run:
+            return {
+                "status": "needs-review",
+                "source_id": source_id,
+                "canonical_url": canonical_url,
+                "source_url_redacted": safe_url.redacted,
+                "capture_method": capture_method,
+                "link_only": not bool(content or selection),
+                "review_issues": review_issues,
+                "reported_update_date": reported_update_date,
+                "path": None,
+                "warnings": warnings,
+            }
+        review_note = _render_review_note(
+            title=title,
+            source_id=source_id,
+            source_url=safe_url.source_url,
+            canonical_url=canonical_url,
+            source_url_redacted=safe_url.redacted,
+            captured=captured,
+            capture_method=capture_method,
+            review_issues=review_issues,
+            reported_update_date=reported_update_date,
+            content=content,
+            tavily_request_id=tavily_request_id,
+        )
+        review_path = _write_review_note(
+            vault, args.folder, captured_date, filename_title, source_id, review_note
+        )
+        return {
+            "status": "needs-review",
+            "source_id": source_id,
+            "canonical_url": canonical_url,
+            "source_url_redacted": safe_url.redacted,
+            "capture_method": capture_method,
+            "link_only": not bool(content or selection),
+            "review_issues": review_issues,
+            "reported_update_date": reported_update_date,
+            "path": str(review_path),
+            "warnings": warnings,
+        }
+
     destination_folder_candidate = (
         duplicate.parent
         if duplicate and refresh_existing
@@ -1962,6 +2081,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             "source_url_redacted": safe_url.redacted,
             "capture_method": capture_method,
             "link_only": not bool(content or selection),
+            "reported_update_date": reported_update_date,
             "path": str(destination),
             "warnings": warnings,
         }
@@ -1992,6 +2112,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
                     "source_url_redacted": safe_url.redacted,
                     "capture_method": capture_method,
                     "link_only": False,
+                    "reported_update_date": reported_update_date,
                     "path": str(duplicate.resolve()),
                     "warnings": warnings,
                 }
@@ -2054,6 +2175,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
         "source_url_redacted": safe_url.redacted,
         "capture_method": capture_method,
         "link_only": not bool(content or selection),
+        "reported_update_date": reported_update_date,
         "path": str(destination.resolve()),
         "warnings": warnings,
     }
