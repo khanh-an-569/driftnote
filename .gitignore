@@ -8,6 +8,9 @@ driftnote.yaml
 .skill-backups/
 .tmp-rich-capture/
 
+# Local agent scratch state (progress ledgers, not project artifacts)
+.superpowers/
+
 # Python bytecode and virtual environments
 __pycache__/
 *.py[cod]
