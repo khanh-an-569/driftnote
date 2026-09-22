@@ -957,7 +957,72 @@ def _extract_reported_update_date(content: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _collect_content_review_issues(content: str) -> list[str]:
+_HTML_STRUCTURAL_TAG_PATTERN = re.compile(r"<(pre|table|h[1-6])\b", re.IGNORECASE)
+_MARKDOWN_TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def _count_html_structural_elements(html: str) -> dict[str, int]:
+    counts = {"pre": 0, "table": 0, "heading": 0}
+    for match in _HTML_STRUCTURAL_TAG_PATTERN.finditer(html):
+        tag = match.group(1).lower()
+        if tag == "pre":
+            counts["pre"] += 1
+        elif tag == "table":
+            counts["table"] += 1
+        else:
+            counts["heading"] += 1
+    return counts
+
+
+def _count_markdown_structural_elements(content: str) -> dict[str, int]:
+    counts = {"pre": 0, "table": 0, "heading": 0}
+    in_fence = False
+    previous_was_table_row = False
+    for line in content.splitlines():
+        if _CODE_FENCE_PATTERN.match(line):
+            if not in_fence:
+                counts["pre"] += 1
+            in_fence = not in_fence
+            previous_was_table_row = False
+            continue
+        if in_fence:
+            continue
+        if _MARKDOWN_HEADING_PATTERN.match(line):
+            counts["heading"] += 1
+            previous_was_table_row = False
+            continue
+        is_table_row = bool(_MARKDOWN_TABLE_ROW_PATTERN.match(line))
+        if is_table_row and not previous_was_table_row:
+            counts["table"] += 1
+        previous_was_table_row = is_table_row
+    return counts
+
+
+def _find_structural_content_loss(html: str, content: str) -> list[str]:
+    """Compare structural element counts between source HTML and the
+    converted Markdown, to catch content silently dropped inside
+    html_to_markdown() itself — a different failure mode than a malformed
+    Markdown input (Tasks 1-4), which only validates Markdown that has
+    already been produced.
+    """
+
+    html_counts = _count_html_structural_elements(html)
+    markdown_counts = _count_markdown_structural_elements(content)
+    labels = {"pre": "code block", "table": "table", "heading": "heading"}
+    issues: list[str] = []
+    for key, label in labels.items():
+        if markdown_counts[key] < html_counts[key]:
+            issues.append(
+                f"Conversion lost {html_counts[key] - markdown_counts[key]} "
+                f"{label}(s): {html_counts[key]} in the source HTML, only "
+                f"{markdown_counts[key]} in the converted Markdown."
+            )
+    return issues
+
+
+def _collect_content_review_issues(
+    content: str, *, source_html: str | None = None
+) -> list[str]:
     """Return blocking reasons the generated source content should not be
     published as-is. An empty list means the content passed validation.
     """
@@ -981,6 +1046,9 @@ def _collect_content_review_issues(content: str) -> list[str]:
         issues.append(
             f'Section "{heading}" has no body content before the next heading.'
         )
+
+    if source_html:
+        issues.extend(_find_structural_content_loss(source_html, content))
 
     return issues
 
@@ -2061,6 +2129,7 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
                 )
                 if converted:
                     content = converted
+                    html_content = fetched_html
                     rich_html = True
                     fetched_public_html = True
                 else:
@@ -2120,7 +2189,13 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
     filename_title = sanitize_filename(title, source_id)
     captured_date = captured[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", captured) else datetime.now().date().isoformat()
 
-    review_issues = _collect_content_review_issues(content) if content else []
+    review_issues = (
+        _collect_content_review_issues(
+            content, source_html=html_content if rich_html else None
+        )
+        if content
+        else []
+    )
     reported_update_date = _extract_reported_update_date(content) if content else None
     if review_issues:
         if args.dry_run:
