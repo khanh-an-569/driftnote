@@ -34,9 +34,9 @@ Allowed `status` values are `inbox`, `processed`, `needs-review`, and `archived`
 
 Các giá trị `status` được phép là `inbox`, `processed`, `needs-review` và `archived`.
 
-Allowed `capture_method` values are `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid`, and `manual`.
+Allowed `capture_method` values are `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid`, `manual`, and `public-html`.
 
-Các giá trị `capture_method` được phép là `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid` và `manual`.
+Các giá trị `capture_method` được phép là `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid`, `manual` và `public-html`.
 
 `source_id` is the first 16 hexadecimal characters of the SHA-256 hash of `canonical_url`. Use it for duplicate detection; do not use the title as the identifier.
 
@@ -66,6 +66,6 @@ Với nhạc, video và podcast, metadata cùng liên kết gốc đã là một
 
 ## Rich source content / Nội dung nguồn giàu cấu trúc
 
-`--content-file` accepts already-converted Markdown or intentional plain text. `--html-file` accepts UTF-8 DOM/HTML from an authorized browser context and converts headings, structured document TOCs, hyperlinks, emphasis, lists, code, remote images, simple tables, TeX math, Quarto title blocks, and `<details>` into Obsidian-compatible Markdown. The note keeps its own H1; HTML source headings are shifted down one level, and rich HTML content begins directly inside the generated source-content markers without a visible wrapper heading. A valid document TOC becomes a collapsed `[!toc]-` callout with nested same-note heading links. Supported expandable sections become native Obsidian callouts with `+` for initially open and `-` for initially closed. Rich structure that was already flattened to text cannot be reconstructed reliably.
+`--content-file` accepts raw HTML, already-converted Markdown, or intentional plain text; the helper detects HTML from its structure. `--html-file` explicitly accepts UTF-8 DOM/HTML from an authorized browser context. Detected HTML converts headings, structured document TOCs, hyperlinks, emphasis, lists, code, remote images, simple tables, TeX math, Quarto title blocks, and `<details>` into Obsidian-compatible Markdown. The note keeps its own H1; HTML source headings are shifted down one level, and rich HTML content begins directly inside the generated source-content markers without a visible wrapper heading. A valid document TOC becomes a collapsed `[!toc]-` callout with nested same-note heading links. Supported expandable sections become native Obsidian callouts with `+` for initially open and `-` for initially closed. Rich structure that was already flattened to text cannot be reconstructed reliably.
 
 On an exact duplicate, the default result is still `duplicate`. With an explicit `--refresh-existing`, the helper atomically replaces only the generated source-content marker region, changes `link_only` to `false`, updates `capture_method`, and preserves the existing `Ghi chú của tôi` section plus the rest of the note metadata. The refresh fails closed when either the marker/personal-notes boundary or new source content is missing. Legacy notes can be migrated only when their section boundary is unambiguous.

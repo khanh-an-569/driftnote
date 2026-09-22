@@ -88,14 +88,13 @@ class RepositoryTests(unittest.TestCase):
 
     def test_yaml_and_base_files_parse(self) -> None:
         paths = [
-            ROOT / "driftnote.example.yaml",
             ROOT / "vault-starter" / "Web Inbox.base",
             ROOT / "skills" / "web-to-obsidian" / "agents" / "openai.yaml",
             ROOT / "skills" / "obsidian-clip-beautifier" / "agents" / "openai.yaml",
             ROOT / "skills" / "obsidian-excalidraw-mindmap" / "agents" / "openai.yaml",
         ]
         parsed = [yaml.safe_load(path.read_text(encoding="utf-8")) for path in paths]
-        base = parsed[1]
+        base = parsed[0]
         self.assertEqual(
             [view["name"] for view in base["views"]],
             ["Inbox", "Reading", "Music", "Processed"],

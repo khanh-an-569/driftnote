@@ -6,6 +6,8 @@ import importlib.util
 import io
 import json
 import multiprocessing
+import re
+import socket
 import sys
 import tempfile
 import threading
@@ -42,8 +44,25 @@ class FakeHttpResponse:
     def __exit__(self, *args: object) -> None:
         return None
 
-    def read(self) -> bytes:
-        return self.payload
+    def read(self, amt: int | None = None) -> bytes:
+        return self.payload if amt is None else self.payload[:amt]
+
+
+# A stand-in getaddrinfo() result resolving to a public address, for tests
+# that exercise the fetch_public_html tier without asserting anything about
+# DNS resolution itself — keeps those tests hermetic instead of depending on
+# real network access to resolve example.com.
+_PUBLIC_GETADDRINFO_RESULT = [
+    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+]
+
+
+class _StubOpener:
+    def __init__(self, response: FakeHttpResponse) -> None:
+        self._response = response
+
+    def open(self, request: object, timeout: object = None) -> FakeHttpResponse:
+        return self._response
 
 
 def make_args(vault: str, **overrides: object) -> argparse.Namespace:
@@ -70,8 +89,10 @@ def make_args(vault: str, **overrides: object) -> argparse.Namespace:
         "min_content_chars": 400,
         "timeout": 30.0,
         "confirm_social_permalink": False,
+        "allow_text_only": False,
         "refresh_existing": False,
         "dry_run": False,
+        "fetch_public_html": False,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
@@ -95,6 +116,166 @@ def capture_in_process(
 
 
 class SaveCaptureTests(unittest.TestCase):
+    def test_content_file_with_html_is_detected_and_preserves_links(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "browser-capture.txt"
+            content_file.write_text(
+                '<main><h2>Report</h2><p>Read <a href="/study">the study</a>.</p></main>',
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://example.com/article",
+                    title="Report",
+                    content_file=str(content_file),
+                )
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("[the study](https://example.com/study)", note)
+            self.assertIn("### Report", note)
+
+    def test_full_article_capture_preserves_every_content_link_without_loss(self) -> None:
+        """Reconstruct the note from a raw capture and diff its links against the source.
+
+        This is the type-detection contract end to end: the helper alone (no agent
+        flag) must decide the capture is HTML, convert it, and the resulting link set
+        must match the source article's content links exactly - nothing dropped, and
+        chrome/script-only or literal code-text hrefs must not leak in as real links.
+        """
+        html = """
+        <nav><a href="/nav-only">Skip navigation</a></nav>
+        <script>var link = "<a href='/script-only'>fake</a>";</script>
+        <main>
+          <h1>Deep sea discovery</h1>
+          <p>Researchers published <a href="/sources/paper">the paper</a> this week.</p>
+          <ul>
+            <li>See the <a href="https://example.com/data/raw">raw dataset</a>.</li>
+            <li>Compare with <a href="/sources/prior-study">a prior study</a>.</li>
+          </ul>
+          <table>
+            <tr><th>Site</th><th>Report</th></tr>
+            <tr><td>Station A</td><td><a href="/reports/station-a">Station A report</a></td></tr>
+          </table>
+          <blockquote>
+            <p>As noted in <a href="/sources/interview">an interview</a>, the team was surprised.</p>
+          </blockquote>
+          <pre><code>&lt;a href="/should-not-be-linked"&gt;fake code link&lt;/a&gt;</code></pre>
+        </main>
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "browser-capture.txt"
+            content_file.write_text(html, encoding="utf-8")
+
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://example.com/article",
+                    title="Deep sea discovery",
+                    content_file=str(content_file),
+                )
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+
+        # Reconstruct just the captured article body (excluding the note's own
+        # "source" backlink and frontmatter) to diff against the original page.
+        source_content = note.split("web-to-obsidian:source-content:start -->", 1)[1]
+        source_content = source_content.split("<!-- web-to-obsidian:source-content:end", 1)[0]
+
+        # The article's real content links - everything a reader could click through to.
+        expected_links = {
+            "https://example.com/sources/paper",
+            "https://example.com/data/raw",
+            "https://example.com/sources/prior-study",
+            "https://example.com/reports/station-a",
+            "https://example.com/sources/interview",
+        }
+        found_links = set(re.findall(r"\]\((https://example\.com/[^)\s]+)\)", source_content))
+        self.assertEqual(expected_links, found_links)
+
+        # Chrome-chrome (nav) and script-only hrefs never counted as content links.
+        self.assertNotIn("/nav-only", note)
+        self.assertNotIn("/script-only", note)
+        # A link-shaped string that is only literal code text must stay text, not a link.
+        self.assertIn("/should-not-be-linked", note)
+        self.assertNotIn("[fake code link](", note)
+        self.assertNotIn("](https://example.com/should-not-be-linked)", note)
+
+    def test_markdown_code_example_is_not_treated_as_html_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "# HTML example\n\n```html\n<main><a href=\"/study\">study</a></main>\n```\n",
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    content_file=str(content_file),
+                    allow_text_only=True,
+                )
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn('```html\n<main><a href="/study">study</a></main>\n```', note)
+            self.assertNotIn("[study](https://example.com/study)", note)
+
+    def test_markdown_with_inline_html_keeps_markdown_heading(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                '# Notes\n\nRead <a href="/study">study</a>.\n',
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn('# Notes\n\nRead <a href="/study">study</a>.', note)
+
+    def test_html_file_rejects_plain_text_instead_of_marking_it_rich(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_file = Path(temp_dir) / "page.html"
+            html_file.write_text("This browser output has no HTML structure.", encoding="utf-8")
+            with self.assertRaisesRegex(save_capture.CaptureError, "does not contain HTML"):
+                save_capture.run_capture(
+                    make_args(temp_dir, html_file=str(html_file), dry_run=True)
+                )
+
+    def test_browser_plain_text_capture_requires_explicit_text_only_choice(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "article.txt"
+            content_file.write_text("Linked article without href data.", encoding="utf-8")
+            with self.assertRaisesRegex(save_capture.CaptureError, "--html-file"):
+                save_capture.run_capture(
+                    make_args(temp_dir, content_file=str(content_file), dry_run=True)
+                )
+
+    def test_browser_plain_text_capture_warns_about_lost_hyperlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "article.txt"
+            content_file.write_text(
+                "The report cites another study but the browser text has no href.",
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    content_file=str(content_file),
+                    dry_run=True,
+                    allow_text_only=True,
+                )
+            )
+
+        self.assertTrue(
+            any("hyperlinks" in warning for warning in result["warnings"]),
+            result["warnings"],
+        )
+
     def test_html_to_markdown_preserves_links_emphasis_and_images(self) -> None:
         html = """
         <html><body><nav>Skip navigation</nav><main>
@@ -410,6 +591,7 @@ Actual personal note.
                     url="https://example.com/refresh-me",
                     title="Refresh target",
                     content_file=str(plain_file),
+                    allow_text_only=True,
                 )
             )
             note_path = Path(str(first["path"]))
@@ -443,6 +625,43 @@ Actual personal note.
             self.assertIn("**Preserved structure**", note)
             self.assertIn("My durable annotation", note)
             self.assertEqual(len(list(Path(temp_dir).rglob("*.md"))), 1)
+
+    def test_refresh_link_only_note_adds_source_and_removes_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = save_capture.run_capture(
+                make_args(temp_dir, url="https://example.com/link-only", title="Link only")
+            )
+            note_path = Path(str(first["path"]))
+            note_path.write_text(
+                note_path.read_text(encoding="utf-8") + "My durable annotation\n",
+                encoding="utf-8",
+            )
+            content_file = Path(temp_dir) / "extracted.md"
+            content_file.write_text(
+                "# Extracted page\n\nRead [the guide](https://example.com/guide).",
+                encoding="utf-8",
+            )
+
+            refreshed = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://example.com/link-only",
+                    title="Link only",
+                    capture_method="tavily-basic",
+                    content_file=str(content_file),
+                    refresh_existing=True,
+                )
+            )
+
+            note = note_path.read_text(encoding="utf-8")
+            self.assertEqual(refreshed["status"], "refreshed")
+            self.assertFalse(refreshed["link_only"])
+            self.assertIn("link_only: false", note)
+            self.assertIn("capture_method: tavily-basic", note)
+            self.assertIn("[the guide](https://example.com/guide)", note)
+            self.assertIn("My durable annotation", note)
+            self.assertNotIn("Link-only capture", note)
+            self.assertEqual(len(list(Path(temp_dir).rglob("*.md"))), 2)
 
     def test_configures_utf8_console(self) -> None:
         class FakeStream:
@@ -726,6 +945,20 @@ Actual personal note.
             self.assertEqual(first["source_id"], second["source_id"])
             self.assertEqual(first["path"], second["path"])
 
+    def test_missing_tavily_key_reports_configuration_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            save_capture.os.environ, {}, clear=True
+        ):
+            result = save_capture.run_capture(
+                make_args(temp_dir, tavily="auto", dry_run=True)
+            )
+
+        self.assertTrue(result["link_only"])
+        self.assertTrue(
+            any("TAVILY_API_KEY" in warning for warning in result["warnings"]),
+            result["warnings"],
+        )
+
     def test_redacted_url_is_never_sent_to_tavily(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             fake_secret = "test-only-signature"
@@ -783,6 +1016,7 @@ Actual personal note.
                     make_args(
                         temp_dir,
                         content_file=str(content_file),
+                        allow_text_only=True,
                         tavily="basic",
                     )
                 )
@@ -944,6 +1178,7 @@ Actual personal note.
                     make_args(
                         temp_dir,
                         content_file=str(content_file),
+                        allow_text_only=True,
                         tavily="basic",
                     )
                 )
@@ -957,7 +1192,7 @@ Actual personal note.
         with tempfile.TemporaryDirectory() as temp_dir:
             content_file = Path(temp_dir) / "capture.txt"
             content_file.write_text("Nội dung được giữ nguyên.", encoding="utf-8")
-            args = make_args(temp_dir, content_file=str(content_file))
+            args = make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
 
             first = save_capture.run_capture(args)
             self.assertEqual(first["status"], "created")
@@ -1283,7 +1518,7 @@ Actual personal note.
                 "### Second section detail\n\nNested body.\n",
                 encoding="utf-8",
             )
-            args = make_args(temp_dir, content_file=str(content_file))
+            args = make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
             result = save_capture.run_capture(args)
             note = Path(str(result["path"])).read_text(encoding="utf-8")
             self.assertIn("> [!toc]- Table of contents", note)
@@ -1302,7 +1537,7 @@ Actual personal note.
                 "# Intro\n\nSome intro text.\n\n## Only other heading\n\nBody.\n",
                 encoding="utf-8",
             )
-            args = make_args(temp_dir, content_file=str(content_file))
+            args = make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
             result = save_capture.run_capture(args)
             note = Path(str(result["path"])).read_text(encoding="utf-8")
             self.assertNotIn("[!toc]", note)
@@ -1325,6 +1560,867 @@ Actual personal note.
         self.assertNotIn("Not a heading", toc)
         self.assertIn("[[#Real heading one]]", toc)
         self.assertIn("[[#Real heading one#Real heading two|Real heading two]]", toc)
+
+    def test_extracts_only_the_toc_callout_block(self) -> None:
+        content = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#A]]\n"
+            ">   - [[#A#B|B]]\n\n"
+            "# A\n\nBody with a [[#A#B|B]] link too.\n"
+        )
+        block = save_capture._extract_toc_block(content)
+        self.assertIn("[[#A#B|B]]", block)
+        self.assertNotIn("Body with a", block)
+
+    def test_returns_empty_string_when_no_toc_block_exists(self) -> None:
+        self.assertEqual(save_capture._extract_toc_block("# A\n\nBody.\n"), "")
+
+    def test_finds_duplicate_toc_destinations(self) -> None:
+        toc = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#Section]]\n"
+            ">   - [[#Section#Python|Python]]\n"
+            ">   - [[#Section#Python|Python]]\n"
+            ">   - [[#Section#REST|REST]]\n"
+        )
+        self.assertEqual(
+            save_capture._find_duplicate_toc_destinations(toc),
+            ["#Section#Python"],
+        )
+
+    def test_no_duplicates_when_every_destination_is_unique(self) -> None:
+        toc = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#Section]]\n"
+            ">   - [[#Section#Python|Python]]\n"
+            ">   - [[#Section#REST|REST]]\n"
+        )
+        self.assertEqual(save_capture._find_duplicate_toc_destinations(toc), [])
+
+    def test_finds_broken_single_backtick_span_crossing_blank_line(self) -> None:
+        content = (
+            "### REST\n\n"
+            "`# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com\"\n\n"
+            "# 2. Upload directly to File Search store\n\n"
+            "curl -X POST \"https://example.com/upload\"`\n"
+        )
+        spans = save_capture._find_unfenced_multiline_code_spans(content)
+        self.assertEqual(spans, [(3, 8)])
+
+    def test_ignores_balanced_single_backtick_terms_on_their_own_line(self) -> None:
+        content = (
+            "## Section\n\n"
+            "`gemini-embedding-001`\n\n"
+            "## Next section\n\n"
+            "Body text.\n"
+        )
+        self.assertEqual(save_capture._find_unfenced_multiline_code_spans(content), [])
+
+    def test_ignores_spans_already_inside_triple_backtick_fences(self) -> None:
+        content = (
+            "## Section\n\n"
+            "```text\n"
+            "`half open\n\n"
+            "still inside fence\n"
+            "```\n\n"
+            "## Next section\n\n"
+            "Body text.\n"
+        )
+        self.assertEqual(save_capture._find_unfenced_multiline_code_spans(content), [])
+
+    def test_flags_a_span_left_open_at_end_of_content(self) -> None:
+        content = "## Section\n\n`opened but never closed\n\nmore text\n"
+        self.assertEqual(
+            save_capture._find_unfenced_multiline_code_spans(content),
+            [(3, 5)],
+        )
+
+    def test_finds_heading_with_no_body_before_next_sibling_heading(self) -> None:
+        content = (
+            "## Giá\n\n"
+            "## Bước tiếp theo\n\n"
+            "Trừ phi có lưu ý khác...\n"
+        )
+        self.assertEqual(save_capture._find_empty_sections(content), ["Giá"])
+
+    def test_does_not_flag_a_parent_heading_that_only_contains_a_child_heading(
+        self,
+    ) -> None:
+        content = (
+            "## Các điểm hạn chế\n\n"
+            "### Giới hạn số lượng yêu cầu\n\n"
+            "Aware API có các giới hạn sau.\n"
+        )
+        self.assertEqual(save_capture._find_empty_sections(content), [])
+
+    def test_flags_the_final_heading_when_nothing_follows_it(self) -> None:
+        content = "## Intro\n\nBody text.\n\n## Trailing\n"
+        self.assertEqual(save_capture._find_empty_sections(content), ["Trailing"])
+
+    def test_does_not_flag_a_heading_followed_only_by_a_code_fence_body(self) -> None:
+        content = "## Example\n\n```bash\necho hi\n```\n\n## Next\n\nBody.\n"
+        self.assertEqual(save_capture._find_empty_sections(content), [])
+
+    def test_extracts_vietnamese_last_updated_date(self) -> None:
+        content = "...\n\nCập nhật lần gần đây nhất: 2026-08-19 UTC.\n"
+        self.assertEqual(
+            save_capture._extract_reported_update_date(content), "2026-08-19"
+        )
+
+    def test_extracts_english_last_updated_date(self) -> None:
+        content = "...\n\nLast updated: 2026-08-19.\n"
+        self.assertEqual(
+            save_capture._extract_reported_update_date(content), "2026-08-19"
+        )
+
+    def test_returns_none_when_no_update_date_is_present(self) -> None:
+        self.assertIsNone(save_capture._extract_reported_update_date("No date here."))
+
+    def test_collect_content_review_issues_reports_broken_fence_duplicate_toc_and_empty_section(
+        self,
+    ) -> None:
+        content = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#REST]]\n"
+            ">   - [[#REST#Python|Python]]\n"
+            ">   - [[#REST#Python|Python]]\n\n"
+            "## REST\n\n"
+            "`# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com\"\n\n"
+            "# 2. Upload directly\n\n"
+            "curl -X POST \"https://example.com/upload\"`\n\n"
+            "## Giá\n\n"
+            "## Bước tiếp theo\n\n"
+            "Body.\n"
+        )
+        issues = save_capture._collect_content_review_issues(content)
+        self.assertEqual(len(issues), 3)
+        self.assertTrue(any("broken" in issue for issue in issues))
+        self.assertTrue(any("REST#Python" in issue for issue in issues))
+        self.assertTrue(any('"Giá"' in issue for issue in issues))
+
+    def test_collect_content_review_issues_is_empty_for_clean_content(self) -> None:
+        content = (
+            "## Intro\n\nBody one.\n\n"
+            "## Details\n\n```bash\n# a real shell comment\necho hi\n```\n\nBody two.\n"
+        )
+        self.assertEqual(save_capture._collect_content_review_issues(content), [])
+
+    def test_run_capture_writes_a_review_draft_instead_of_the_main_note(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "## REST\n\n"
+                "`# 1. Create a File Search store\n"
+                "curl -X POST \"https://example.com\"\n\n"
+                "# 2. Upload directly\n\n"
+                "curl -X POST \"https://example.com/upload\"`\n\n"
+                "## Two\n\nBody.\n\n"
+                "## Three\n\nBody.\n",
+                encoding="utf-8",
+            )
+            args = make_args(
+                temp_dir,
+                content_file=str(content_file),
+                capture_method="tavily-basic",
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "needs-review")
+            self.assertTrue(result["review_issues"])
+            review_path = Path(str(result["path"]))
+            self.assertTrue(
+                review_path.is_relative_to(
+                    Path(temp_dir).resolve() / "00 Inbox" / "Web" / "Needs Review"
+                )
+            )
+            review_note = review_path.read_text(encoding="utf-8")
+            self.assertIn("type: capture-review", review_note)
+            self.assertIn("status: needs-review", review_note)
+            main_notes = [
+                path
+                for path in Path(temp_dir).rglob("*.md")
+                if "type: source" in path.read_text(encoding="utf-8")
+            ]
+            self.assertEqual(main_notes, [])
+
+    def test_run_capture_needs_review_dry_run_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "## Giá\n\n## Bước tiếp theo\n\nBody.\n\n## Third\n\nBody.\n",
+                encoding="utf-8",
+            )
+            args = make_args(
+                temp_dir,
+                content_file=str(content_file),
+                allow_text_only=True,
+                dry_run=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "needs-review")
+            self.assertIsNone(result["path"])
+            self.assertEqual(list(Path(temp_dir).rglob("*.md")), [content_file])
+
+    def test_run_capture_reports_source_update_date_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "## Intro\n\nBody one.\n\n"
+                "## Details\n\nBody two.\n\n"
+                "Cập nhật lần gần đây nhất: 2026-08-19 UTC.\n",
+                encoding="utf-8",
+            )
+            args = make_args(
+                temp_dir, content_file=str(content_file), allow_text_only=True
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "created")
+            self.assertEqual(result["reported_update_date"], "2026-08-19")
+
+    def test_gemini_file_search_style_capture_needs_review(self) -> None:
+        """Regression test for the 2026-09-22 Gemini File Search note: a
+        Tavily capture with an unfenced multi-line REST block, duplicate
+        Python subsections under one heading, and an empty trailing section.
+        """
+
+        content = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#Tìm kiếm tệp]]\n"
+            "> - [[#Nhập tệp]]\n"
+            ">   - [[#Nhập tệp#Python|Python]]\n"
+            ">   - [[#Nhập tệp#Python|Python]]\n\n"
+            "# Tìm kiếm tệp\n\n"
+            "Gemini API cho phép tính năng Tạo sinh tăng cường truy xuất.\n\n"
+            "### REST\n\n"
+            "`# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com/stores\"\n\n"
+            "# 2. Upload directly to File Search store\n\n"
+            "curl -X POST \"https://example.com/upload\"`\n\n"
+            "## Nhập tệp\n\n"
+            "### Python\n\nimport1_example()\n\n"
+            "### Python\n\nimport2_example()\n\n"
+            "## Giá\n\n"
+            "## Bước tiếp theo\n\n"
+            "Trừ phi có lưu ý khác...\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(content, encoding="utf-8")
+            args = make_args(
+                temp_dir,
+                url="https://ai.google.dev/gemini-api/docs/file-search",
+                content_file=str(content_file),
+                capture_method="tavily-basic",
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "needs-review")
+            reasons = " ".join(result["review_issues"])
+            self.assertIn("broken", reasons)
+            self.assertIn("Giá", reasons)
+            review_note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("type: capture-review", review_note)
+
+    def test_gemini_file_search_style_capture_succeeds_once_fixed(self) -> None:
+        """Same shape as the regression above, but with a valid triple-backtick
+        fence, one Python subsection, and real trailing-section content —
+        proves the gate does not block a correctly structured capture.
+        """
+
+        content = (
+            "# Tìm kiếm tệp\n\n"
+            "Gemini API cho phép tính năng Tạo sinh tăng cường truy xuất.\n\n"
+            "### REST\n\n"
+            "```bash\n"
+            "# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com/stores\"\n\n"
+            "# 2. Upload directly to File Search store\n"
+            "curl -X POST \"https://example.com/upload\"\n"
+            "```\n\n"
+            "## Nhập tệp\n\n"
+            "### Python\n\nimport_example()\n\n"
+            "## Giá\n\nGiá tính theo mã thông báo đầu vào.\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(content, encoding="utf-8")
+            args = make_args(
+                temp_dir,
+                url="https://ai.google.dev/gemini-api/docs/file-search",
+                content_file=str(content_file),
+                capture_method="tavily-basic",
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "created")
+
+    def test_safe_redirect_handler_blocks_redirect_to_private_ip(self) -> None:
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request("https://example.com/docs")
+        with self.assertRaisesRegex(save_capture.CaptureError, "unsafe URL"):
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "http://127.0.0.1/admin"
+            )
+
+    def test_safe_redirect_handler_blocks_more_than_three_redirects(self) -> None:
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request("https://example.com/docs")
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            for _ in range(3):
+                handler.redirect_request(
+                    request, None, 302, "Found", {}, "https://example.com/next"
+                )
+            with self.assertRaisesRegex(save_capture.CaptureError, "redirect limit"):
+                handler.redirect_request(
+                    request, None, 302, "Found", {}, "https://example.com/next"
+                )
+
+    def test_safe_redirect_handler_strips_cookie_and_authorization_headers(self) -> None:
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request(
+            "https://example.com/docs",
+            headers={"Cookie": "session=abc", "Authorization": "Bearer xyz"},
+        )
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            new_request = handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.com/next"
+            )
+        self.assertNotIn("Cookie", new_request.headers)
+        self.assertNotIn("Authorization", new_request.headers)
+
+    def test_fetch_public_html_returns_html_text_on_success(self) -> None:
+        html = b"<html><body><main><h1>Docs</h1><p>Real content.</p></main></body></html>"
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            result = save_capture.fetch_public_html(
+                "https://example.com/docs", timeout=5.0
+            )
+        self.assertIn("Real content.", result)
+
+    def test_fetch_public_html_rejects_a_non_html_response(self) -> None:
+        response = FakeHttpResponse(b"just plain text, no markup at all")
+        response.headers = {}
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "HTML structure"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_rejects_unsupported_content_type(self) -> None:
+        response = FakeHttpResponse(b"%PDF-1.4 binary data")
+        response.headers = {"Content-Type": "application/pdf"}
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "content type"):
+                save_capture.fetch_public_html("https://example.com/file.pdf")
+
+    def test_fetch_public_html_rejects_a_response_over_the_size_limit(self) -> None:
+        oversized = (
+            b"<html><body>"
+            + b"a" * save_capture._PUBLIC_HTML_MAX_BYTES
+            + b"</body></html>"
+        )
+        response = FakeHttpResponse(oversized)
+        response.headers = {"Content-Type": "text/html"}
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "size limit"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_wraps_connection_errors(self) -> None:
+        class _RaisingOpener:
+            def open(self, request: object, timeout: object = None) -> None:
+                raise urllib.error.URLError("refused")
+
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request, "build_opener", return_value=_RaisingOpener()
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "could not connect"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_tier_converts_dom_and_marks_capture_method(self) -> None:
+        html = (
+            b"<html><body><main>"
+            b"<h1>Docs</h1><p>Real content from the live page.</p>"
+            b"</main></body></html>"
+        )
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html"}
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ), mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            args = make_args(
+                temp_dir,
+                content_file=None,
+                capture_method="manual",
+                fetch_public_html=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertEqual(result["status"], "created")
+            self.assertEqual(result["capture_method"], "public-html")
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("Real content from the live page.", note)
+
+    def test_fetch_public_html_tier_skips_private_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture.urllib.request, "build_opener"
+        ) as build_opener:
+            args = make_args(
+                temp_dir,
+                url="http://localhost/internal",
+                content_file=None,
+                fetch_public_html=True,
+            )
+            result = save_capture.run_capture(args)
+        build_opener.assert_not_called()
+        self.assertTrue(result["link_only"])
+
+    def test_fetch_public_html_failure_falls_back_to_tavily_auto(self) -> None:
+        tavily_payload = json.dumps(
+            {
+                "results": [
+                    {"raw_content": "# Intro\n\nFallback content from Tavily.\n"}
+                ],
+                "request_id": "req-1",
+            }
+        ).encode("utf-8")
+
+        class _FailingOpener:
+            def open(self, request: object, timeout: object = None) -> None:
+                raise urllib.error.URLError("connection refused")
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            save_capture.os.environ, {"TAVILY_API_KEY": "test-key"}
+        ), mock.patch.object(
+            save_capture.urllib.request, "build_opener", return_value=_FailingOpener()
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "urlopen",
+            return_value=FakeHttpResponse(tavily_payload),
+        ), mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            args = make_args(
+                temp_dir,
+                content_file=None,
+                fetch_public_html=True,
+                tavily="auto",
+            )
+            result = save_capture.run_capture(args)
+        self.assertEqual(result["status"], "created")
+        self.assertTrue(result["capture_method"].startswith("tavily-"))
+
+    def test_is_public_html_host_safe_rejects_hostname_resolving_to_private_address(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443))
+            ],
+        ):
+            safe, reason = save_capture._is_public_html_host_safe(
+                "https://attacker-controlled.example/docs"
+            )
+        self.assertFalse(safe)
+        self.assertIn("not public", reason)
+
+    def test_is_public_html_host_safe_accepts_hostname_resolving_to_public_address(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+            ],
+        ):
+            safe, reason = save_capture._is_public_html_host_safe(
+                "https://example.com/docs"
+            )
+        self.assertTrue(safe)
+        self.assertIsNone(reason)
+
+    def test_safe_redirect_handler_blocks_redirect_whose_dns_resolves_to_a_private_address(
+        self,
+    ) -> None:
+        # The literal hostname below is not caught by is_safe_public_url_for_tavily's
+        # string-pattern check (it is not "localhost", ".local"/.internal", or a
+        # literal IP) — only DNS resolution reveals that it points at a private
+        # address. Proves _SafePublicHtmlRedirectHandler catches what the
+        # literal-string check alone would miss.
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request("https://example.com/docs")
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+            ],
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "unsafe URL"):
+                handler.redirect_request(
+                    request,
+                    None,
+                    302,
+                    "Found",
+                    {},
+                    "https://attacker-controlled.example/next",
+                )
+
+    def test_fetch_public_html_installs_the_safe_redirect_handler(self) -> None:
+        html = b"<html><body><main><h1>Docs</h1><p>Real content.</p></main></body></html>"
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html"}
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ) as build_opener:
+            save_capture.fetch_public_html("https://example.com/docs")
+        build_opener.assert_called_once()
+        (handler,), _kwargs = build_opener.call_args
+        self.assertIsInstance(handler, save_capture._SafePublicHtmlRedirectHandler)
+
+    def test_fetch_public_html_rejects_a_near_miss_content_type(self) -> None:
+        response = FakeHttpResponse(b"<html><body>irrelevant</body></html>")
+        response.headers = {"Content-Type": "text/htmlx"}
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "content type"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_tier_warns_when_conversion_produces_no_content(
+        self,
+    ) -> None:
+        html = b"<html><head><title>Empty</title></head><body></body></html>"
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html"}
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ), mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            args = make_args(
+                temp_dir,
+                content_file=None,
+                capture_method="manual",
+                fetch_public_html=True,
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertNotEqual(result.get("capture_method"), "public-html")
+            self.assertTrue(
+                any(
+                    "no usable content" in warning
+                    for warning in result.get("warnings", [])
+                )
+            )
+
+    def test_fetch_public_html_refuses_an_unsafe_url_without_opening_a_connection(
+        self,
+    ) -> None:
+        # Defense in depth: the function is safe regardless of whether a
+        # caller remembered the is_safe_public_url_for_tavily() preamble.
+        with mock.patch.object(
+            save_capture.urllib.request, "build_opener"
+        ) as build_opener:
+            with self.assertRaisesRegex(save_capture.CaptureError, "unsafe URL"):
+                save_capture.fetch_public_html("http://127.0.0.1/docs")
+        build_opener.assert_not_called()
+
+    def test_fetch_public_html_refuses_a_host_resolving_to_a_private_address(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))
+            ],
+        ), mock.patch.object(
+            save_capture.urllib.request, "build_opener"
+        ) as build_opener:
+            with self.assertRaisesRegex(save_capture.CaptureError, "not public"):
+                save_capture.fetch_public_html("https://attacker-controlled.example/docs")
+        build_opener.assert_not_called()
+
+    def test_counts_pre_table_and_heading_tags_in_html(self) -> None:
+        html = (
+            "<article><h1>Title</h1><h2>Section</h2>"
+            "<pre>code one</pre><table><tr><td>1</td></tr></table>"
+            "<pre>code two</pre></article>"
+        )
+        counts = save_capture._count_html_structural_elements(html)
+        self.assertEqual(counts, {"pre": 2, "table": 1, "heading": 2})
+
+    def test_counts_fences_tables_and_headings_in_markdown(self) -> None:
+        content = (
+            "# Title\n\n## Section\n\n"
+            "```python\ncode one\n```\n\n"
+            "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n"
+            "```bash\ncode two\n```\n"
+        )
+        counts = save_capture._count_markdown_structural_elements(content)
+        self.assertEqual(counts, {"pre": 2, "table": 1, "heading": 2})
+
+    def test_finds_structural_content_loss_reports_missing_elements(self) -> None:
+        html = (
+            "<article><h1>T</h1><pre>a</pre><pre>b</pre>"
+            "<table><tr><td>x</td></tr></table></article>"
+        )
+        content = "# T\n\n```text\na\n```\n"
+        issues = save_capture._find_structural_content_loss(html, content)
+        self.assertEqual(len(issues), 2)
+        self.assertTrue(any("code block" in issue for issue in issues))
+        self.assertTrue(any("table" in issue for issue in issues))
+
+    def test_finds_structural_content_loss_is_empty_when_nothing_is_missing(self) -> None:
+        html = "<article><h1>T</h1><pre>a</pre></article>"
+        content = "# T\n\n```text\na\n```\n"
+        self.assertEqual(save_capture._find_structural_content_loss(html, content), [])
+
+    def test_collect_content_review_issues_includes_structural_loss_when_source_html_given(
+        self,
+    ) -> None:
+        html = "<article><h1>T</h1><pre>a</pre><pre>b</pre></article>"
+        content = "# T\n\n```text\na\n```\n"
+        issues = save_capture._collect_content_review_issues(content, source_html=html)
+        self.assertTrue(any("code block" in issue for issue in issues))
+
+    def test_collect_content_review_issues_skips_structural_loss_without_source_html(
+        self,
+    ) -> None:
+        content = "# T\n\n```text\na\n```\n"
+        self.assertEqual(save_capture._collect_content_review_issues(content), [])
+
+    def test_run_capture_flags_structural_content_loss_from_html_source(self) -> None:
+        # A <pre> nested inside a table cell is a real case where the HTML-to-
+        # Markdown converter flattens the code block into inline `<br>`-joined
+        # text instead of a fence, so this fixture causes genuine content loss
+        # (unlike two sibling <pre> tags, which the converter preserves fine).
+        html = (
+            "<html><body><main>"
+            "<h1>Docs</h1>"
+            "<table><tr><td><pre>example one</pre></td></tr></table>"
+            "<pre>example two</pre>"
+            "</main></body></html>"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_file = Path(temp_dir) / "capture.html"
+            html_file.write_text(html, encoding="utf-8")
+            args = make_args(temp_dir, html_file=str(html_file))
+            result = save_capture.run_capture(args)
+        self.assertEqual(result["status"], "needs-review")
+        self.assertTrue(any("code block" in issue for issue in result["review_issues"]))
+
+    def test_run_capture_flags_structural_content_loss_when_converter_drops_a_table(
+        self,
+    ) -> None:
+        html = (
+            "<html><body><main><h1>Docs</h1>"
+            "<table><tr><td>Row</td></tr></table>"
+            "</main></body></html>"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture, "html_to_markdown", return_value="# Docs\n\nBody without the table.\n"
+        ):
+            html_file = Path(temp_dir) / "capture.html"
+            html_file.write_text(html, encoding="utf-8")
+            args = make_args(temp_dir, html_file=str(html_file))
+            result = save_capture.run_capture(args)
+        self.assertEqual(result["status"], "needs-review")
+        self.assertTrue(any("table" in issue for issue in result["review_issues"]))
+
+    def test_run_capture_accepts_a_full_page_whose_chrome_sits_outside_main(
+        self,
+    ) -> None:
+        # html_to_markdown() only converts the selected subtree (<main> here),
+        # so structural elements in <header>/<nav>/<aside>/<footer> are never
+        # expected in the Markdown and must not be counted as lost.
+        html = (
+            "<html><body>"
+            "<header><h1>Example Docs</h1></header>"
+            "<nav class=\"sidebar\">"
+            "<h2>On this page</h2>"
+            "<ul><li><a href=\"#install\">Install</a></li></ul>"
+            "<pre>nav snippet</pre>"
+            "<table><tr><td>nav cell</td></tr></table>"
+            "</nav>"
+            "<aside><h2>Related</h2><p>Other pages.</p></aside>"
+            "<main>"
+            "<h1>Docs</h1><p>Intro paragraph.</p>"
+            "<h2 id=\"install\">Install</h2><p>Install steps.</p>"
+            "<pre>pip install example</pre>"
+            "<h2>Usage</h2><p>Usage notes.</p>"
+            "</main>"
+            "<footer><h2>Legal</h2><p>Terms.</p><h3>Contact</h3>"
+            "<p>Mail us.</p><table><tr><td>footer cell</td></tr></table></footer>"
+            "</body></html>"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_file = Path(temp_dir) / "capture.html"
+            html_file.write_text(html, encoding="utf-8")
+            args = make_args(temp_dir, html_file=str(html_file))
+            result = save_capture.run_capture(args)
+        self.assertEqual(
+            result["status"], "created", msg=result.get("review_issues")
+        )
+
+    def test_count_html_structural_elements_ignores_nodes_outside_the_converted_region(
+        self,
+    ) -> None:
+        html = (
+            "<html><body>"
+            "<nav><h2>TOC</h2><pre>x</pre><table><tr><td>y</td></tr></table></nav>"
+            "<main><h1>T</h1><pre>a</pre></main>"
+            "<footer><h2>Legal</h2></footer>"
+            "</body></html>"
+        )
+        counts = save_capture._count_html_structural_elements(html)
+        self.assertEqual(counts, {"pre": 1, "table": 0, "heading": 1})
+
+    def test_count_html_structural_elements_ignores_comments_and_templates(self) -> None:
+        html = (
+            "<main>"
+            "<h1>T</h1>"
+            "<!-- <h2>Commented</h2><pre>nope</pre> -->"
+            "<script type=\"text/x-template\">"
+            "<h2>Templated</h2><table><tr><td>z</td></tr></table>"
+            "</script>"
+            "</main>"
+        )
+        counts = save_capture._count_html_structural_elements(html)
+        self.assertEqual(counts, {"pre": 0, "table": 0, "heading": 1})
+
+    def test_same_page_fragment_link_resolves_to_the_heading_it_sits_on(self) -> None:
+        html = (
+            "<article>"
+            "<p>See <a href=\"#pricing\">pricing</a> for details.</p>"
+            "<h2 id=\"pricing\">Giá</h2>"
+            "<p>Body.</p>"
+            "</article>"
+        )
+        markdown = save_capture.html_to_markdown(html, "https://example.com/docs")
+        self.assertIn("[[#Giá|pricing]]", markdown)
+
+    def test_same_page_fragment_link_resolves_through_a_wrapping_section(self) -> None:
+        html = (
+            "<article>"
+            "<p>See <a href=\"#pricing\">Giá</a> for details.</p>"
+            "<section id=\"pricing\"><h2>Giá</h2><p>Body.</p></section>"
+            "</article>"
+        )
+        markdown = save_capture.html_to_markdown(html, "https://example.com/docs")
+        self.assertIn("[[#Giá]]", markdown)
+        self.assertNotIn("[[#Giá|Giá]]", markdown)
+
+    def test_unresolved_fragment_link_falls_back_to_an_absolute_url(self) -> None:
+        html = (
+            "<article>"
+            "<p>See <a href=\"#unknown-section\">details</a>.</p>"
+            "<h2>Intro</h2><p>Body.</p>"
+            "</article>"
+        )
+        markdown = save_capture.html_to_markdown(html, "https://example.com/docs?x=1")
+        self.assertIn(
+            "[details](https://example.com/docs?x=1#unknown-section)", markdown
+        )
+        self.assertNotIn("[[#unknown-section", markdown)
+
+    def test_collect_fragment_heading_paths_uses_nearest_preceding_heading_for_a_sibling_anchor(
+        self,
+    ) -> None:
+        """Known limitation: an id on a plain sibling anchor placed
+        immediately before its heading (rather than on the heading itself
+        or a wrapping element) resolves to the *previous* heading, not the
+        one that follows.
+        """
+
+        html = (
+            "<article>"
+            "<h2 id=\"other\">Other</h2>"
+            "<span id=\"pricing\"></span>"
+            "<h2>Giá</h2>"
+            "</article>"
+        )
+        parser = save_capture._HtmlTreeParser()
+        parser.feed(html)
+        parser.close()
+        selected = parser.root
+        renderer = save_capture._HtmlMarkdownRenderer("https://example.com/docs")
+        paths = save_capture._collect_fragment_heading_paths(selected, renderer)
+        self.assertEqual(paths["other"], ("Other",))
+        self.assertEqual(paths["pricing"], ("Other",))
 
 
 if __name__ == "__main__":
