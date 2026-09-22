@@ -2241,6 +2241,66 @@ Actual personal note.
         self.assertEqual(result["status"], "needs-review")
         self.assertTrue(any("table" in issue for issue in result["review_issues"]))
 
+    def test_same_page_fragment_link_resolves_to_the_heading_it_sits_on(self) -> None:
+        html = (
+            "<article>"
+            "<p>See <a href=\"#pricing\">pricing</a> for details.</p>"
+            "<h2 id=\"pricing\">Giá</h2>"
+            "<p>Body.</p>"
+            "</article>"
+        )
+        markdown = save_capture.html_to_markdown(html, "https://example.com/docs")
+        self.assertIn("[[#Giá|pricing]]", markdown)
+
+    def test_same_page_fragment_link_resolves_through_a_wrapping_section(self) -> None:
+        html = (
+            "<article>"
+            "<p>See <a href=\"#pricing\">Giá</a> for details.</p>"
+            "<section id=\"pricing\"><h2>Giá</h2><p>Body.</p></section>"
+            "</article>"
+        )
+        markdown = save_capture.html_to_markdown(html, "https://example.com/docs")
+        self.assertIn("[[#Giá]]", markdown)
+        self.assertNotIn("[[#Giá|Giá]]", markdown)
+
+    def test_unresolved_fragment_link_falls_back_to_an_absolute_url(self) -> None:
+        html = (
+            "<article>"
+            "<p>See <a href=\"#unknown-section\">details</a>.</p>"
+            "<h2>Intro</h2><p>Body.</p>"
+            "</article>"
+        )
+        markdown = save_capture.html_to_markdown(html, "https://example.com/docs?x=1")
+        self.assertIn(
+            "[details](https://example.com/docs?x=1#unknown-section)", markdown
+        )
+        self.assertNotIn("[[#unknown-section", markdown)
+
+    def test_collect_fragment_heading_paths_uses_nearest_preceding_heading_for_a_sibling_anchor(
+        self,
+    ) -> None:
+        """Known limitation: an id on a plain sibling anchor placed
+        immediately before its heading (rather than on the heading itself
+        or a wrapping element) resolves to the *previous* heading, not the
+        one that follows.
+        """
+
+        html = (
+            "<article>"
+            "<h2 id=\"other\">Other</h2>"
+            "<span id=\"pricing\"></span>"
+            "<h2>Giá</h2>"
+            "</article>"
+        )
+        parser = save_capture._HtmlTreeParser()
+        parser.feed(html)
+        parser.close()
+        selected = parser.root
+        renderer = save_capture._HtmlMarkdownRenderer("https://example.com/docs")
+        paths = save_capture._collect_fragment_heading_paths(selected, renderer)
+        self.assertEqual(paths["other"], ("Other",))
+        self.assertEqual(paths["pricing"], ("Other",))
+
 
 if __name__ == "__main__":
     unittest.main()

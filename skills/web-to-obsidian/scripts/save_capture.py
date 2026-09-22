@@ -272,6 +272,7 @@ class _HtmlMarkdownRenderer:
     def __init__(self, base_url: str, *, heading_offset: int = 0) -> None:
         self.base_url = base_url
         self.heading_offset = max(0, heading_offset)
+        self._fragment_paths: dict[str, tuple[str, ...]] = {}
 
     def render(self, node: HtmlNode | str) -> str:
         if isinstance(node, str):
@@ -319,6 +320,16 @@ class _HtmlMarkdownRenderer:
             return f"=={value}==" if value else ""
         if tag == "a":
             label = self._inline_children(node).strip()
+            href = html_lib.unescape(node.attrs.get("href", "")).strip()
+            if href.startswith("#") and len(href) > 1:
+                fragment = urllib.parse.unquote(href[1:])
+                path = self._fragment_paths.get(fragment)
+                if path:
+                    destination = "#" + "#".join(_escape_wikilink(part) for part in path)
+                    if len(path) == 1 and label == path[-1]:
+                        return f"[[{destination}]]"
+                    escaped_label = _escape_wikilink(label) if label else _escape_wikilink(path[-1])
+                    return f"[[{destination}|{escaped_label}]]"
             target = self._resolve_url(node.attrs.get("href", ""), image=False)
             if not target:
                 return label
@@ -683,6 +694,67 @@ def _toc_heading_for_fragment(
         else _find_html_node(target, lambda node: bool(re.fullmatch(r"h[1-6]", node.tag)))
     )
     return renderer._text_content(heading).strip() if heading else ""
+
+
+def _collect_fragment_heading_paths(
+    selected: HtmlNode,
+    renderer: "_HtmlMarkdownRenderer",
+) -> dict[str, tuple[str, ...]]:
+    """Map every element id/data-anchor-id in the converted region to an
+    Obsidian heading path, so a same-page ``#fragment`` link can become a
+    wikilink instead of an opaque absolute URL. Preference per id: a
+    heading it sits on or wraps (matches how a page's own nav-TOC anchors
+    usually work), else the nearest heading at or before that point in the
+    document (matches an anchor placed immediately before its heading with
+    no wrapping element — though not one placed as a preceding sibling with
+    no wrapping element and no id on the heading itself; that case resolves
+    to the previous heading instead, a known limitation).
+    """
+
+    stack: list[tuple[int, str]] = []
+    heading_paths: dict[int, tuple[str, ...]] = {}
+    fragment_targets: dict[str, HtmlNode] = {}
+    fallback_paths: dict[str, tuple[str, ...]] = {}
+
+    def visit(node: HtmlNode) -> None:
+        if re.fullmatch(r"h[1-6]", node.tag):
+            level = int(node.tag[1])
+            text = renderer._text_content(node).strip()
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            if text:
+                stack.append((level, text))
+                heading_paths[id(node)] = tuple(entry[1] for entry in stack)
+
+        fragment_id = node.attrs.get("id") or node.attrs.get("data-anchor-id")
+        if fragment_id and fragment_id not in fragment_targets:
+            fragment_targets[fragment_id] = node
+            fallback_paths[fragment_id] = tuple(entry[1] for entry in stack)
+
+        for child in node.children:
+            if isinstance(child, HtmlNode):
+                visit(child)
+
+    def nearest_heading(node: HtmlNode) -> HtmlNode | None:
+        if re.fullmatch(r"h[1-6]", node.tag):
+            return node
+        for child in node.children:
+            if isinstance(child, HtmlNode):
+                found = nearest_heading(child)
+                if found is not None:
+                    return found
+        return None
+
+    visit(selected)
+
+    paths: dict[str, tuple[str, ...]] = {}
+    for fragment_id, target_node in fragment_targets.items():
+        target_heading = nearest_heading(target_node)
+        if target_heading is not None and id(target_heading) in heading_paths:
+            paths[fragment_id] = heading_paths[id(target_heading)]
+        elif fallback_paths.get(fragment_id):
+            paths[fragment_id] = fallback_paths[fragment_id]
+    return paths
 
 
 def _escape_wikilink(value: str) -> str:
@@ -1071,6 +1143,7 @@ def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> st
         base_url,
         heading_offset=heading_offset,
     )
+    renderer._fragment_paths = _collect_fragment_heading_paths(selected, renderer)
     markdown = renderer.render(selected)
     toc = _render_toc_callout(root, selected, renderer)
     markdown = _insert_toc_after_header(markdown, toc)
