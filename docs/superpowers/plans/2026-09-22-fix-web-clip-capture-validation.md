@@ -2007,17 +2007,17 @@ git commit -m "docs: document the public-HTML fetch tier and needs-review status
 
 ### Task 11: Sync fixes to the installed Driftnote plugin and reinstall
 
-Tasks 1–10 only change files under `E:\skill` (the plugin source you edit). Codex actually runs the *installed* copy at `C:\Users\LTC\plugins\driftnote`, registered under marketplace name `personal` in `C:\Users\LTC\.agents\plugins\marketplace.json` (confirmed: its single plugin entry is `driftnote`, sourced locally from `./plugins/driftnote`), currently at version `0.5.0+codex.20260922023520` (confirmed by reading `C:\Users\LTC\plugins\driftnote\plugin.json:4`). Codex only loads whatever that installed copy's `skills` field points at (`./skills/`, per `E:\skill\.codex-plugin\plugin.json:20`, mirrored at the installed path). Until this task runs, Task 12's live recreation of the Gemini note would execute against the old, unfixed capture logic — this is the step that actually delivers Tasks 1–10 to the running agent. `obsidian-clip-beautifier` (the other skill in this same package) is confirmed out of scope: it has no `manifest.json` of its own (only CSS/JSON assets and one script), and this plan changes none of its files.
+Tasks 1–10 only change files under `E:\skill` (the plugin source you edit). Codex actually runs the *installed* copy at `%USERPROFILE%\plugins\driftnote`, registered under marketplace name `personal` in `%USERPROFILE%\.agents\plugins\marketplace.json` (confirmed: its single plugin entry is `driftnote`, sourced locally from `./plugins/driftnote`), currently at version `0.5.0+codex.20260922023520` (confirmed by reading `%USERPROFILE%\plugins\driftnote\plugin.json:4`). Codex only loads whatever that installed copy's `skills` field points at (`./skills/`, per `E:\skill\.codex-plugin\plugin.json:20`, mirrored at the installed path). Until this task runs, Task 12's live recreation of the Gemini note would execute against the old, unfixed capture logic — this is the step that actually delivers Tasks 1–10 to the running agent. `obsidian-clip-beautifier` (the other skill in this same package) is confirmed out of scope: it has no `manifest.json` of its own (only CSS/JSON assets and one script), and this plan changes none of its files.
 
 **Files:**
-- Sync (copy, not edit — these become identical to the repo copy, nothing here is hand-written): from `E:\skill\skills\web-to-obsidian\` to `C:\Users\LTC\plugins\driftnote\skills\web-to-obsidian\`:
+- Sync (copy, not edit — these become identical to the repo copy, nothing here is hand-written): from `E:\skill\skills\web-to-obsidian\` to `%USERPROFILE%\plugins\driftnote\skills\web-to-obsidian\`:
   - `scripts\save_capture.py`
   - `SKILL.md`
   - `references\tavily.md`
   - `references\browser-capture.md`
-- Run: `C:\Users\LTC\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py`
-- Run: `C:\Users\LTC\.codex\skills\.system\plugin-creator\scripts\read_marketplace_name.py`
-- Run: `C:\Users\LTC\.codex\skills\.system\plugin-creator\scripts\update_plugin_cachebuster.py`
+- Run: `%USERPROFILE%\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py`
+- Run: `%USERPROFILE%\.codex\skills\.system\plugin-creator\scripts\read_marketplace_name.py`
+- Run: `%USERPROFILE%\.codex\skills\.system\plugin-creator\scripts\update_plugin_cachebuster.py`
 
 - [ ] **Step 1: Run the full test suite against the repo source**
 
@@ -2026,33 +2026,33 @@ Expected: all tests PASS, including every test added in Tasks 1–9.
 
 - [ ] **Step 2: Validate the plugin source**
 
-Run: `python3 "C:/Users/LTC/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py" "E:/skill"`
+Run: `python3 "%USERPROFILE%/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py" "E:/skill"`
 Expected: validation reports no errors.
 
 - [ ] **Step 3: Copy the four changed files into the installed plugin copy**
 
 ```bash
 cp "E:/skill/skills/web-to-obsidian/scripts/save_capture.py" \
-   "C:/Users/LTC/plugins/driftnote/skills/web-to-obsidian/scripts/save_capture.py"
+   "%USERPROFILE%/plugins/driftnote/skills/web-to-obsidian/scripts/save_capture.py"
 cp "E:/skill/skills/web-to-obsidian/SKILL.md" \
-   "C:/Users/LTC/plugins/driftnote/skills/web-to-obsidian/SKILL.md"
+   "%USERPROFILE%/plugins/driftnote/skills/web-to-obsidian/SKILL.md"
 cp "E:/skill/skills/web-to-obsidian/references/tavily.md" \
-   "C:/Users/LTC/plugins/driftnote/skills/web-to-obsidian/references/tavily.md"
+   "%USERPROFILE%/plugins/driftnote/skills/web-to-obsidian/references/tavily.md"
 cp "E:/skill/skills/web-to-obsidian/references/browser-capture.md" \
-   "C:/Users/LTC/plugins/driftnote/skills/web-to-obsidian/references/browser-capture.md"
+   "%USERPROFILE%/plugins/driftnote/skills/web-to-obsidian/references/browser-capture.md"
 ```
 
-Verify: `diff "E:/skill/skills/web-to-obsidian/scripts/save_capture.py" "C:/Users/LTC/plugins/driftnote/skills/web-to-obsidian/scripts/save_capture.py"` prints nothing.
+Verify: `diff "E:/skill/skills/web-to-obsidian/scripts/save_capture.py" "%USERPROFILE%/plugins/driftnote/skills/web-to-obsidian/scripts/save_capture.py"` prints nothing.
 
 - [ ] **Step 4: Read the personal marketplace name**
 
-Run: `python3 "C:/Users/LTC/.codex/skills/.system/plugin-creator/scripts/read_marketplace_name.py"`
+Run: `python3 "%USERPROFILE%/.codex/skills/.system/plugin-creator/scripts/read_marketplace_name.py"`
 Expected: prints `personal`.
 
 - [ ] **Step 5: Bump the installed plugin's cachebuster**
 
-Run: `python3 "C:/Users/LTC/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py" "C:/Users/LTC/plugins/driftnote"`
-Expected: `C:\Users\LTC\plugins\driftnote\plugin.json`'s `"version"` changes from `0.5.0+codex.20260922023520` to `0.5.0+codex.<new-UTC-timestamp>` — prefix `0.5.0` preserved, only the `+codex.` suffix replaced (Cachebuster Policy, `installing-and-updating.md:93-111`).
+Run: `python3 "%USERPROFILE%/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py" "%USERPROFILE%/plugins/driftnote"`
+Expected: `%USERPROFILE%\plugins\driftnote\plugin.json`'s `"version"` changes from `0.5.0+codex.20260922023520` to `0.5.0+codex.<new-UTC-timestamp>` — prefix `0.5.0` preserved, only the `+codex.` suffix replaced (Cachebuster Policy, `installing-and-updating.md:93-111`).
 
 - [ ] **Step 6: Reinstall**
 
@@ -2063,7 +2063,7 @@ Expected: command succeeds; no marketplace-file edits needed since `personal` is
 
 In a new task/thread (plugin updates only take effect in a fresh thread per `installing-and-updating.md:141-144`), ask Codex which Driftnote version is active and confirm it matches the new cachebuster from Step 5.
 
-- [ ] **Step 8: No commit for the copy step** — the installed copy at `C:\Users\LTC\plugins\driftnote` is outside this repo's git history. Do not bump `E:\skill`'s own `.codex-plugin/plugin.json`, `plugin.json`, or `.claude-plugin/plugin.json` just to trigger this local reinstall; a real version bump for those is a separate, explicit release decision.
+- [ ] **Step 8: No commit for the copy step** — the installed copy at `%USERPROFILE%\plugins\driftnote` is outside this repo's git history. Do not bump `E:\skill`'s own `.codex-plugin/plugin.json`, `plugin.json`, or `.claude-plugin/plugin.json` just to trigger this local reinstall; a real version bump for those is a separate, explicit release decision.
 
 ---
 
@@ -2083,7 +2083,7 @@ Open `https://ai.google.dev/gemini-api/docs/file-search?hl=vi` in the ChatGPT br
 If the extension still cannot export DOM/HTML for this page, run the new fallback instead, using the *installed* plugin path (this is what the live agent actually resolves and runs, per `SKILL.md`'s own "For an installed skill..." instruction):
 
 ```powershell
-python C:\Users\LTC\plugins\driftnote\skills\web-to-obsidian\scripts\save_capture.py `
+python %USERPROFILE%\plugins\driftnote\skills\web-to-obsidian\scripts\save_capture.py `
   --url "https://ai.google.dev/gemini-api/docs/file-search?hl=vi" `
   --title "Tìm kiếm tệp - Interactions API | Google AI for Developers" `
   --capture-method manual --fetch-public-html --tavily auto `
@@ -2093,7 +2093,7 @@ python C:\Users\LTC\plugins\driftnote\skills\web-to-obsidian\scripts\save_captur
 - [ ] **Step 2: Dry-run against the existing note and read the result**
 
 ```powershell
-python C:\Users\LTC\plugins\driftnote\skills\web-to-obsidian\scripts\save_capture.py `
+python %USERPROFILE%\plugins\driftnote\skills\web-to-obsidian\scripts\save_capture.py `
   --url "https://ai.google.dev/gemini-api/docs/file-search?hl=vi" `
   --title "Tìm kiếm tệp - Interactions API | Google AI for Developers" `
   --content-file "$env:TEMP\file-search.html" --capture-method chrome `
@@ -2132,7 +2132,7 @@ Drop `--dry-run` and run the same command from Step 2 for real. Confirm the resu
 - "Cổng kiểm tra trước khi ghi... needs-review... không ghi đè" → Task 5. Confirmed with the user: a capture that passes every detector is trusted and written normally; `needs-review` fires only when a detector actually flags something — not a blanket "every Tavily capture needs review" policy. Revised further after the second round: the main note is never touched, but a labeled `type: capture-review` draft *is* written under `Needs Review/` (Task 5 Steps 8–9), so a human has something to open and fix rather than only a JSON error.
 - Đúng cả 3 lần chuyển hướng, giới hạn 10 MiB, không gửi cookie/khóa, kiểm tra IP ở mỗi lần kết nối, cache/DNS-rebinding qua redirect → Task 7 (`_SafePublicHtmlRedirectHandler`, `_PUBLIC_HTML_MAX_BYTES`, content-type check, cookie/Authorization stripping on every hop).
 - "Bổ sung trường hợp test cho các snippet và các trường hợp tương tự" → confirmed with the user as "keep the inline-snippet convention, just add more test cases in that style" (not a separate fixture file); satisfied by every task's per-function unit tests plus Task 6's two end-to-end regression snippets (broken shape / fixed shape). No `tests/fixtures/` directory added.
-- "Đồng bộ nguồn plugin, tăng cache version, cài lại" → Task 11, using the real installed paths confirmed by reading `C:\Users\LTC\.agents\plugins\marketplace.json` (marketplace `personal`), `C:\Users\LTC\plugins\driftnote\plugin.json` (installed version `0.5.0+codex.20260922023520`), and `C:\Users\LTC\.codex\skills\.system\plugin-creator\references\installing-and-updating.md` (the cachebuster/reinstall flow) — not Obsidian CSS caching, and not `obsidian-clip-beautifier` (confirmed to have no `manifest.json` of its own, out of scope).
+- "Đồng bộ nguồn plugin, tăng cache version, cài lại" → Task 11, using the real installed paths confirmed by reading `%USERPROFILE%\.agents\plugins\marketplace.json` (marketplace `personal`), `%USERPROFILE%\plugins\driftnote\plugin.json` (installed version `0.5.0+codex.20260922023520`), and `%USERPROFILE%\.codex\skills\.system\plugin-creator\references\installing-and-updating.md` (the cachebuster/reinstall flow) — not Obsidian CSS caching, and not `obsidian-clip-beautifier` (confirmed to have no `manifest.json` of its own, out of scope).
 - "Tạo bản nháp, đối chiếu trang gốc, thay vùng nội dung nguồn, giữ Ghi chú của tôi" → Task 12 (renumbered after Task 11's plugin sync, since the live agent must run the fixed code, not the stale installed copy), using the existing `--refresh-existing`/`--dry-run` flags (unchanged code, already does exactly this per `_merge_refreshed_source_content`), plus a new non-overwriting backup to `.driftnote-backups` in Step 3 before the real refresh.
 - The three items explicitly deferred after the prior comparison round are now designed and written in: `#fragment`→Obsidian-heading resolution with absolute-URL fallback → Task 9 (`_collect_fragment_heading_paths`, with its "nearest preceding heading for a sibling anchor" limitation pinned by its own test rather than left as an unverified claim); the HTML-vs-Markdown structural round-trip check → Task 8 (`_find_structural_content_loss`, wired into `_collect_content_review_issues` and both HTML-sourced paths); the `needs-review` draft note → folded into Task 5 as described above (this required relocating Task 5's gate later in `run_capture()`, after `title`/`captured_date`/`filename_title` are computed, and Task 7's `elif fetched_public_html:` insertion point was updated to match).
 - The unaddressed process gap noted in the earlier review — the connected-extract `basic`→`advanced` retry policy in `tavily.md` not being followed for this note — is not a code task (it is agent-level judgment when the *connected* Tavily tool is used, not the script's own `--tavily` branch); it is called out in Task 10 Step 4's new "Ordering" section instead of a script change.
