@@ -1959,10 +1959,10 @@ Actual personal note.
                 fetch_public_html=True,
             )
             result = save_capture.run_capture(args)
-        self.assertEqual(result["status"], "created")
-        self.assertEqual(result["capture_method"], "public-html")
-        note = Path(str(result["path"])).read_text(encoding="utf-8")
-        self.assertIn("Real content from the live page.", note)
+            self.assertEqual(result["status"], "created")
+            self.assertEqual(result["capture_method"], "public-html")
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("Real content from the live page.", note)
 
     def test_fetch_public_html_tier_skips_private_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(

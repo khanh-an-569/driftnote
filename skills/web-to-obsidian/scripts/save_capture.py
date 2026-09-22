@@ -2012,6 +2012,26 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
         )
     selection = _read_optional_file(args.selection_file)
     had_browser_content = bool(content or selection)
+
+    fetched_public_html = False
+    if not had_browser_content and getattr(args, "fetch_public_html", False):
+        safe, reason = is_safe_public_url_for_tavily(args.url)
+        if not safe:
+            warnings.append(f"Public HTML fetch skipped: {reason}.")
+        else:
+            try:
+                fetched_html = fetch_public_html(safe_url.source_url, timeout=args.timeout)
+            except CaptureError as exc:
+                warnings.append(f"Public HTML fetch failed: {exc}")
+            else:
+                converted = html_to_markdown(
+                    fetched_html, safe_url.source_url, heading_offset=1
+                )
+                if converted:
+                    content = converted
+                    rich_html = True
+                    fetched_public_html = True
+
     tavily_request_id: str | None = None
     tavily_depth: str | None = None
 
@@ -2054,6 +2074,8 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
             capture_method = "hybrid"
         else:
             capture_method = f"tavily-{tavily_depth}"
+    elif fetched_public_html:
+        capture_method = "public-html"
 
     parsed = urllib.parse.urlsplit(canonical_url)
     platform = args.platform.strip() if args.platform else parsed.hostname or ""
@@ -2319,6 +2341,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--folder", default="00 Inbox/Web", help="Destination relative to vault root")
     parser.add_argument("--captured", default="", help="ISO timestamp; defaults to local current time")
     parser.add_argument("--tavily", choices=("off", "auto", "basic", "advanced"), default="off")
+    parser.add_argument(
+        "--fetch-public-html",
+        action="store_true",
+        help=(
+            "When no content or selection is supplied, fetch the public URL's "
+            "raw HTML directly (no browser) before falling back to Tavily; "
+            "skipped for private, local, or credentialed URLs"
+        ),
+    )
     parser.add_argument("--min-content-chars", type=int, default=400)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument(
