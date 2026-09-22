@@ -7,6 +7,7 @@ import io
 import json
 import multiprocessing
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -45,6 +46,15 @@ class FakeHttpResponse:
 
     def read(self, amt: int | None = None) -> bytes:
         return self.payload if amt is None else self.payload[:amt]
+
+
+# A stand-in getaddrinfo() result resolving to a public address, for tests
+# that exercise the fetch_public_html tier without asserting anything about
+# DNS resolution itself — keeps those tests hermetic instead of depending on
+# real network access to resolve example.com.
+_PUBLIC_GETADDRINFO_RESULT = [
+    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+]
 
 
 class _StubOpener:
@@ -1855,14 +1865,19 @@ Actual personal note.
     def test_safe_redirect_handler_blocks_more_than_three_redirects(self) -> None:
         handler = save_capture._SafePublicHtmlRedirectHandler()
         request = urllib.request.Request("https://example.com/docs")
-        for _ in range(3):
-            handler.redirect_request(
-                request, None, 302, "Found", {}, "https://example.com/next"
-            )
-        with self.assertRaisesRegex(save_capture.CaptureError, "redirect limit"):
-            handler.redirect_request(
-                request, None, 302, "Found", {}, "https://example.com/next"
-            )
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            for _ in range(3):
+                handler.redirect_request(
+                    request, None, 302, "Found", {}, "https://example.com/next"
+                )
+            with self.assertRaisesRegex(save_capture.CaptureError, "redirect limit"):
+                handler.redirect_request(
+                    request, None, 302, "Found", {}, "https://example.com/next"
+                )
 
     def test_safe_redirect_handler_strips_cookie_and_authorization_headers(self) -> None:
         handler = save_capture._SafePublicHtmlRedirectHandler()
@@ -1870,9 +1885,14 @@ Actual personal note.
             "https://example.com/docs",
             headers={"Cookie": "session=abc", "Authorization": "Bearer xyz"},
         )
-        new_request = handler.redirect_request(
-            request, None, 302, "Found", {}, "https://example.com/next"
-        )
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            new_request = handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.com/next"
+            )
         self.assertNotIn("Cookie", new_request.headers)
         self.assertNotIn("Authorization", new_request.headers)
 
@@ -1951,6 +1971,10 @@ Actual personal note.
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
+        ), mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
         ):
             args = make_args(
                 temp_dir,
@@ -2000,6 +2024,10 @@ Actual personal note.
             save_capture.urllib.request,
             "urlopen",
             return_value=FakeHttpResponse(tavily_payload),
+        ), mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
         ):
             args = make_args(
                 temp_dir,
@@ -2010,6 +2038,121 @@ Actual personal note.
             result = save_capture.run_capture(args)
         self.assertEqual(result["status"], "created")
         self.assertTrue(result["capture_method"].startswith("tavily-"))
+
+    def test_is_public_html_host_safe_rejects_hostname_resolving_to_private_address(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443))
+            ],
+        ):
+            safe, reason = save_capture._is_public_html_host_safe(
+                "https://attacker-controlled.example/docs"
+            )
+        self.assertFalse(safe)
+        self.assertIn("not public", reason)
+
+    def test_is_public_html_host_safe_accepts_hostname_resolving_to_public_address(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+            ],
+        ):
+            safe, reason = save_capture._is_public_html_host_safe(
+                "https://example.com/docs"
+            )
+        self.assertTrue(safe)
+        self.assertIsNone(reason)
+
+    def test_safe_redirect_handler_blocks_redirect_whose_dns_resolves_to_a_private_address(
+        self,
+    ) -> None:
+        # The literal hostname below is not caught by is_safe_public_url_for_tavily's
+        # string-pattern check (it is not "localhost", ".local"/.internal", or a
+        # literal IP) — only DNS resolution reveals that it points at a private
+        # address. Proves _SafePublicHtmlRedirectHandler catches what the
+        # literal-string check alone would miss.
+        handler = save_capture._SafePublicHtmlRedirectHandler()
+        request = urllib.request.Request("https://example.com/docs")
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+            ],
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "unsafe URL"):
+                handler.redirect_request(
+                    request,
+                    None,
+                    302,
+                    "Found",
+                    {},
+                    "https://attacker-controlled.example/next",
+                )
+
+    def test_fetch_public_html_installs_the_safe_redirect_handler(self) -> None:
+        html = b"<html><body><main><h1>Docs</h1><p>Real content.</p></main></body></html>"
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html"}
+        with mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ) as build_opener:
+            save_capture.fetch_public_html("https://example.com/docs")
+        build_opener.assert_called_once()
+        (handler,), _kwargs = build_opener.call_args
+        self.assertIsInstance(handler, save_capture._SafePublicHtmlRedirectHandler)
+
+    def test_fetch_public_html_rejects_a_near_miss_content_type(self) -> None:
+        response = FakeHttpResponse(b"<html><body>irrelevant</body></html>")
+        response.headers = {"Content-Type": "text/htmlx"}
+        with mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ):
+            with self.assertRaisesRegex(save_capture.CaptureError, "content type"):
+                save_capture.fetch_public_html("https://example.com/docs")
+
+    def test_fetch_public_html_tier_warns_when_conversion_produces_no_content(
+        self,
+    ) -> None:
+        html = b"<html><head><title>Empty</title></head><body></body></html>"
+        response = FakeHttpResponse(html)
+        response.headers = {"Content-Type": "text/html"}
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            save_capture.urllib.request,
+            "build_opener",
+            return_value=_StubOpener(response),
+        ), mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ):
+            args = make_args(
+                temp_dir,
+                content_file=None,
+                capture_method="manual",
+                fetch_public_html=True,
+                allow_text_only=True,
+            )
+            result = save_capture.run_capture(args)
+            self.assertNotEqual(result.get("capture_method"), "public-html")
+            self.assertTrue(
+                any(
+                    "no usable content" in warning
+                    for warning in result.get("warnings", [])
+                )
+            )
 
 
 if __name__ == "__main__":

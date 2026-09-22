@@ -16,6 +16,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import sys
 import tempfile
 import time
@@ -1545,6 +1546,29 @@ _PUBLIC_HTML_MAX_BYTES = 10 * 1024 * 1024
 _PUBLIC_HTML_ALLOWED_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
 
 
+def _is_public_html_host_safe(url: str) -> tuple[bool, str | None]:
+    """Resolve the host and confirm every resolved address is public.
+    is_safe_public_url_for_tavily() only pattern-matches the literal host
+    string — it never resolves DNS, so a hostname whose DNS record points
+    at a private address, or a numeric-IP shorthand like 127.1, passes it
+    unnoticed. This closes that gap for the public-HTML fetch tier only.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname
+    if not host:
+        return False, "missing host"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError as exc:
+        return False, f"could not resolve host: {exc}"
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if not address.is_global:
+            return False, f"resolved address {address} is not public"
+    return True, None
+
+
 class _SafePublicHtmlRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Re-validate every redirect hop against the same public/private-IP
     check used for the original URL, cap the number of hops, and never
@@ -1564,6 +1588,11 @@ class _SafePublicHtmlRedirectHandler(urllib.request.HTTPRedirectHandler):
         if not safe:
             raise CaptureError(
                 f"Public HTML fetch redirected to an unsafe URL: {reason}."
+            )
+        host_safe, host_reason = _is_public_html_host_safe(newurl)
+        if not host_safe:
+            raise CaptureError(
+                f"Public HTML fetch redirected to an unsafe URL: {host_reason}."
             )
         new_request = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_request is not None:
@@ -1590,9 +1619,7 @@ def fetch_public_html(url: str, timeout: float = 15.0) -> str:
             content_type = (
                 response.headers.get("Content-Type", "").split(";")[0].strip().lower()
             )
-            if content_type and not content_type.startswith(
-                _PUBLIC_HTML_ALLOWED_CONTENT_TYPES
-            ):
+            if content_type and content_type not in _PUBLIC_HTML_ALLOWED_CONTENT_TYPES:
                 raise CaptureError(
                     f"Public HTML fetch got an unsupported content type: {content_type}."
                 )
@@ -2016,8 +2043,13 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
     fetched_public_html = False
     if not had_browser_content and getattr(args, "fetch_public_html", False):
         safe, reason = is_safe_public_url_for_tavily(args.url)
+        host_safe, host_reason = (
+            _is_public_html_host_safe(safe_url.source_url) if safe else (True, None)
+        )
         if not safe:
             warnings.append(f"Public HTML fetch skipped: {reason}.")
+        elif not host_safe:
+            warnings.append(f"Public HTML fetch skipped: {host_reason}.")
         else:
             try:
                 fetched_html = fetch_public_html(safe_url.source_url, timeout=args.timeout)
@@ -2031,6 +2063,10 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
                     content = converted
                     rich_html = True
                     fetched_public_html = True
+                else:
+                    warnings.append(
+                        "Public HTML fetch succeeded but produced no usable content."
+                    )
 
     tavily_request_id: str | None = None
     tavily_depth: str | None = None
