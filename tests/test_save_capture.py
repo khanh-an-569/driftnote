@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import multiprocessing
+import re
 import sys
 import tempfile
 import threading
@@ -70,6 +71,7 @@ def make_args(vault: str, **overrides: object) -> argparse.Namespace:
         "min_content_chars": 400,
         "timeout": 30.0,
         "confirm_social_permalink": False,
+        "allow_text_only": False,
         "refresh_existing": False,
         "dry_run": False,
     }
@@ -95,6 +97,166 @@ def capture_in_process(
 
 
 class SaveCaptureTests(unittest.TestCase):
+    def test_content_file_with_html_is_detected_and_preserves_links(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "browser-capture.txt"
+            content_file.write_text(
+                '<main><h2>Report</h2><p>Read <a href="/study">the study</a>.</p></main>',
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://example.com/article",
+                    title="Report",
+                    content_file=str(content_file),
+                )
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn("[the study](https://example.com/study)", note)
+            self.assertIn("### Report", note)
+
+    def test_full_article_capture_preserves_every_content_link_without_loss(self) -> None:
+        """Reconstruct the note from a raw capture and diff its links against the source.
+
+        This is the type-detection contract end to end: the helper alone (no agent
+        flag) must decide the capture is HTML, convert it, and the resulting link set
+        must match the source article's content links exactly - nothing dropped, and
+        chrome/script-only or literal code-text hrefs must not leak in as real links.
+        """
+        html = """
+        <nav><a href="/nav-only">Skip navigation</a></nav>
+        <script>var link = "<a href='/script-only'>fake</a>";</script>
+        <main>
+          <h1>Deep sea discovery</h1>
+          <p>Researchers published <a href="/sources/paper">the paper</a> this week.</p>
+          <ul>
+            <li>See the <a href="https://example.com/data/raw">raw dataset</a>.</li>
+            <li>Compare with <a href="/sources/prior-study">a prior study</a>.</li>
+          </ul>
+          <table>
+            <tr><th>Site</th><th>Report</th></tr>
+            <tr><td>Station A</td><td><a href="/reports/station-a">Station A report</a></td></tr>
+          </table>
+          <blockquote>
+            <p>As noted in <a href="/sources/interview">an interview</a>, the team was surprised.</p>
+          </blockquote>
+          <pre><code>&lt;a href="/should-not-be-linked"&gt;fake code link&lt;/a&gt;</code></pre>
+        </main>
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "browser-capture.txt"
+            content_file.write_text(html, encoding="utf-8")
+
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://example.com/article",
+                    title="Deep sea discovery",
+                    content_file=str(content_file),
+                )
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+
+        # Reconstruct just the captured article body (excluding the note's own
+        # "source" backlink and frontmatter) to diff against the original page.
+        source_content = note.split("web-to-obsidian:source-content:start -->", 1)[1]
+        source_content = source_content.split("<!-- web-to-obsidian:source-content:end", 1)[0]
+
+        # The article's real content links - everything a reader could click through to.
+        expected_links = {
+            "https://example.com/sources/paper",
+            "https://example.com/data/raw",
+            "https://example.com/sources/prior-study",
+            "https://example.com/reports/station-a",
+            "https://example.com/sources/interview",
+        }
+        found_links = set(re.findall(r"\]\((https://example\.com/[^)\s]+)\)", source_content))
+        self.assertEqual(expected_links, found_links)
+
+        # Chrome-chrome (nav) and script-only hrefs never counted as content links.
+        self.assertNotIn("/nav-only", note)
+        self.assertNotIn("/script-only", note)
+        # A link-shaped string that is only literal code text must stay text, not a link.
+        self.assertIn("/should-not-be-linked", note)
+        self.assertNotIn("[fake code link](", note)
+        self.assertNotIn("](https://example.com/should-not-be-linked)", note)
+
+    def test_markdown_code_example_is_not_treated_as_html_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                "# HTML example\n\n```html\n<main><a href=\"/study\">study</a></main>\n```\n",
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    content_file=str(content_file),
+                    allow_text_only=True,
+                )
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn('```html\n<main><a href="/study">study</a></main>\n```', note)
+            self.assertNotIn("[study](https://example.com/study)", note)
+
+    def test_markdown_with_inline_html_keeps_markdown_heading(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "capture.md"
+            content_file.write_text(
+                '# Notes\n\nRead <a href="/study">study</a>.\n',
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
+            )
+
+            note = Path(str(result["path"])).read_text(encoding="utf-8")
+            self.assertIn('# Notes\n\nRead <a href="/study">study</a>.', note)
+
+    def test_html_file_rejects_plain_text_instead_of_marking_it_rich(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_file = Path(temp_dir) / "page.html"
+            html_file.write_text("This browser output has no HTML structure.", encoding="utf-8")
+            with self.assertRaisesRegex(save_capture.CaptureError, "does not contain HTML"):
+                save_capture.run_capture(
+                    make_args(temp_dir, html_file=str(html_file), dry_run=True)
+                )
+
+    def test_browser_plain_text_capture_requires_explicit_text_only_choice(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "article.txt"
+            content_file.write_text("Linked article without href data.", encoding="utf-8")
+            with self.assertRaisesRegex(save_capture.CaptureError, "--html-file"):
+                save_capture.run_capture(
+                    make_args(temp_dir, content_file=str(content_file), dry_run=True)
+                )
+
+    def test_browser_plain_text_capture_warns_about_lost_hyperlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            content_file = Path(temp_dir) / "article.txt"
+            content_file.write_text(
+                "The report cites another study but the browser text has no href.",
+                encoding="utf-8",
+            )
+            result = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    content_file=str(content_file),
+                    dry_run=True,
+                    allow_text_only=True,
+                )
+            )
+
+        self.assertTrue(
+            any("hyperlinks" in warning for warning in result["warnings"]),
+            result["warnings"],
+        )
+
     def test_html_to_markdown_preserves_links_emphasis_and_images(self) -> None:
         html = """
         <html><body><nav>Skip navigation</nav><main>
@@ -410,6 +572,7 @@ Actual personal note.
                     url="https://example.com/refresh-me",
                     title="Refresh target",
                     content_file=str(plain_file),
+                    allow_text_only=True,
                 )
             )
             note_path = Path(str(first["path"]))
@@ -443,6 +606,43 @@ Actual personal note.
             self.assertIn("**Preserved structure**", note)
             self.assertIn("My durable annotation", note)
             self.assertEqual(len(list(Path(temp_dir).rglob("*.md"))), 1)
+
+    def test_refresh_link_only_note_adds_source_and_removes_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = save_capture.run_capture(
+                make_args(temp_dir, url="https://example.com/link-only", title="Link only")
+            )
+            note_path = Path(str(first["path"]))
+            note_path.write_text(
+                note_path.read_text(encoding="utf-8") + "My durable annotation\n",
+                encoding="utf-8",
+            )
+            content_file = Path(temp_dir) / "extracted.md"
+            content_file.write_text(
+                "# Extracted page\n\nRead [the guide](https://example.com/guide).",
+                encoding="utf-8",
+            )
+
+            refreshed = save_capture.run_capture(
+                make_args(
+                    temp_dir,
+                    url="https://example.com/link-only",
+                    title="Link only",
+                    capture_method="tavily-basic",
+                    content_file=str(content_file),
+                    refresh_existing=True,
+                )
+            )
+
+            note = note_path.read_text(encoding="utf-8")
+            self.assertEqual(refreshed["status"], "refreshed")
+            self.assertFalse(refreshed["link_only"])
+            self.assertIn("link_only: false", note)
+            self.assertIn("capture_method: tavily-basic", note)
+            self.assertIn("[the guide](https://example.com/guide)", note)
+            self.assertIn("My durable annotation", note)
+            self.assertNotIn("Link-only capture", note)
+            self.assertEqual(len(list(Path(temp_dir).rglob("*.md"))), 2)
 
     def test_configures_utf8_console(self) -> None:
         class FakeStream:
@@ -726,6 +926,20 @@ Actual personal note.
             self.assertEqual(first["source_id"], second["source_id"])
             self.assertEqual(first["path"], second["path"])
 
+    def test_missing_tavily_key_reports_configuration_cause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            save_capture.os.environ, {}, clear=True
+        ):
+            result = save_capture.run_capture(
+                make_args(temp_dir, tavily="auto", dry_run=True)
+            )
+
+        self.assertTrue(result["link_only"])
+        self.assertTrue(
+            any("TAVILY_API_KEY" in warning for warning in result["warnings"]),
+            result["warnings"],
+        )
+
     def test_redacted_url_is_never_sent_to_tavily(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             fake_secret = "test-only-signature"
@@ -783,6 +997,7 @@ Actual personal note.
                     make_args(
                         temp_dir,
                         content_file=str(content_file),
+                        allow_text_only=True,
                         tavily="basic",
                     )
                 )
@@ -944,6 +1159,7 @@ Actual personal note.
                     make_args(
                         temp_dir,
                         content_file=str(content_file),
+                        allow_text_only=True,
                         tavily="basic",
                     )
                 )
@@ -957,7 +1173,7 @@ Actual personal note.
         with tempfile.TemporaryDirectory() as temp_dir:
             content_file = Path(temp_dir) / "capture.txt"
             content_file.write_text("Nội dung được giữ nguyên.", encoding="utf-8")
-            args = make_args(temp_dir, content_file=str(content_file))
+            args = make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
 
             first = save_capture.run_capture(args)
             self.assertEqual(first["status"], "created")
@@ -1283,7 +1499,7 @@ Actual personal note.
                 "### Second section detail\n\nNested body.\n",
                 encoding="utf-8",
             )
-            args = make_args(temp_dir, content_file=str(content_file))
+            args = make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
             result = save_capture.run_capture(args)
             note = Path(str(result["path"])).read_text(encoding="utf-8")
             self.assertIn("> [!toc]- Table of contents", note)
@@ -1302,7 +1518,7 @@ Actual personal note.
                 "# Intro\n\nSome intro text.\n\n## Only other heading\n\nBody.\n",
                 encoding="utf-8",
             )
-            args = make_args(temp_dir, content_file=str(content_file))
+            args = make_args(temp_dir, content_file=str(content_file), allow_text_only=True)
             result = save_capture.run_capture(args)
             note = Path(str(result["path"])).read_text(encoding="utf-8")
             self.assertNotIn("[!toc]", note)

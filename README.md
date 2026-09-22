@@ -170,6 +170,8 @@ an opportunity for this project and its maintainer to keep learning. ( •̀ .̫
 
 For the best experience, run `obsidian-clip-beautifier` once from a local task for each vault, then use `web-to-obsidian` from browser side chat for daily capture. The ChatGPT browser extension provides browser context; file writing remains local.
 
+After a capture with source content, Driftnote asks in the chat whether to make an Excalidraw diagram. It does not open a separate plugin dialog or create a diagram without consent. For a link-only note, capture the page content first; a diagram cannot be derived from the URL alone.
+
 ## Configure
 
 Copy the local environment example, then edit `.env`:

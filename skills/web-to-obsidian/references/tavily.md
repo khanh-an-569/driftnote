@@ -4,6 +4,12 @@ Use Tavily only for public HTTP(S) URLs. The helper accepts `TAVILY_API_KEY`, `W
 
 Chỉ dùng Tavily cho URL HTTP(S) công khai. Helper nhận `TAVILY_API_KEY`, `WEB_TO_OBSIDIAN_VAULT_PATH` và biến cũ `OBSIDIAN_VAULT_PATH` từ `.env`, không ghi đè biến tiến trình. Khi không có `--env-file`, helper nạp `.env` của workspace hiện tại trước rồi đến `.env` trung tâm nằm phía trên thư mục `skills` của mã nguồn. Dùng `--env-file` khi cần override rõ ràng.
 
+## Connected Extract tool / Công cụ Extract đã kết nối
+
+For a public page when no rich browser capture is available, use the connected Tavily Extract tool if installed and authorized. Pass only the public URL and request Markdown. Treat `failed_results` or empty content as failure. Write the returned Markdown to a temporary UTF-8 file, then run `save_capture.py --content-file <file> --capture-method tavily-basic --tavily off` (use `tavily-advanced` when that depth was actually used). The helper will preserve Markdown links. This path uses the connected account and does not require `TAVILY_API_KEY` in the helper process. Do not pretend a connected extraction succeeded merely because the URL is public.
+
+Với trang công khai mà không lấy được HTML từ trình duyệt, ưu tiên Tavily Extract đã kết nối nếu khả dụng. Lưu Markdown trả về thành tệp UTF-8 tạm rồi đưa vào helper bằng `--content-file`, `--capture-method tavily-basic` và `--tavily off`. Cách này dùng tài khoản kết nối, không yêu cầu khóa API cục bộ.
+
 ## Extraction policy / Chính sách trích xuất
 
 - Start with `basic` and `format=markdown`. / Bắt đầu bằng `basic` và `format=markdown`.

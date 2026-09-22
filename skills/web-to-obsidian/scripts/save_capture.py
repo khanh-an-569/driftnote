@@ -99,6 +99,10 @@ class CaptureError(RuntimeError):
     """A safe, user-facing capture failure."""
 
 
+class TavilyConfigurationError(CaptureError):
+    """Tavily cannot run because local credentials are unavailable."""
+
+
 @dataclass(frozen=True)
 class TavilyResult:
     content: str
@@ -849,6 +853,29 @@ def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> st
     return markdown.strip()
 
 
+def _looks_like_html_capture(content: str) -> bool:
+    """Recognize HTML markup in raw capture data, ignoring fenced code examples."""
+
+    outside_fences = re.sub(
+        r"(?ms)^ {0,3}(?:`{3,}|~{3,})[^\n]*\n.*?^ {0,3}(?:`{3,}|~{3,})[ \t]*$",
+        "",
+        content,
+    )
+    paired_element = re.search(
+        r"(?is)<(?P<tag>html|body|main|article|section|div|p|h[1-6]|"
+        r"ul|ol|li|table|figure|details)\b[^>]*>.*?</(?P=tag)\s*>",
+        outside_fences,
+    )
+    linked_element = re.search(
+        r"(?is)<a\b[^>]*\bhref\s*=\s*[^>]+>.*?</a\s*>",
+        outside_fences,
+    )
+    if paired_element:
+        return True
+    if re.search(r"(?m)^[ \t]{0,3}#{1,6}\s|^[ \t]{0,3}(?:[-*+]\s|\d+\.\s)", outside_fences):
+        return False
+    return bool(linked_element)
+
 def _dotenv_value(raw_value: str) -> str:
     value = raw_value.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
@@ -1312,7 +1339,7 @@ def _identity_claim(vault: Path, source_id: str) -> Iterable[None]:
 def extract_with_tavily(url: str, depth: str, timeout: float = 30.0) -> TavilyResult:
     api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
-        raise CaptureError("TAVILY_API_KEY is not set in the environment.")
+        raise TavilyConfigurationError("TAVILY_API_KEY is not set in this plugin process.")
 
     payload = json.dumps(
         {
@@ -1563,11 +1590,19 @@ def _merge_refreshed_source_content(
             )
         source_start = legacy_sources[0].start() if legacy_sources else notes_start
 
-    if notes_start <= source_start:
+    if notes_start < source_start:
         raise CaptureError(
             "The existing note has invalid generated section boundaries; refresh stopped."
         )
     prefix = existing_note[:source_start]
+    if source_start == notes_start:
+        prefix = re.sub(
+            r"(?m)^> \[!warning\] Link-only capture\r?\n"
+            r"> Không lấy được nội dung trang tại thời điểm lưu\.\r?\n?",
+            "",
+            prefix,
+            count=1,
+        )
 
     prefix = re.sub(
         r"(?m)^capture_method:\s*.*$",
@@ -1647,16 +1682,30 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
 
     content = _read_optional_file(args.content_file)
     html_content = _read_optional_file(getattr(args, "html_file", None))
-    rich_html = bool(html_content)
-    if html_content:
+    if html_content and not _looks_like_html_capture(html_content):
+        raise CaptureError("The HTML file does not contain HTML structure.")
+    rich_html = bool(html_content) or _looks_like_html_capture(content)
+    if rich_html:
+        html_content = html_content or content
         converted = html_to_markdown(
             html_content,
             safe_url.source_url,
             heading_offset=1,
         )
         if not converted:
-            raise CaptureError("The HTML file did not contain usable page content.")
+            raise CaptureError("The HTML capture did not contain usable page content.")
         content = converted
+    elif args.capture_method == "chrome" and content:
+        if not getattr(args, "allow_text_only", False):
+            raise CaptureError(
+                "Chrome text capture cannot preserve hyperlinks. Provide raw DOM/HTML in "
+                "--content-file or --html-file, "
+                "or use --allow-text-only for an explicitly text-only note."
+            )
+        warnings.append(
+            "Browser text was supplied without HTML; hyperlinks and other page "
+            "structure may be missing. Use --html-file for a linked article."
+        )
     selection = _read_optional_file(args.selection_file)
     had_browser_content = bool(content or selection)
     tavily_request_id: str | None = None
@@ -1685,6 +1734,9 @@ def run_capture(args: argparse.Namespace) -> dict[str, object]:
                         rich_html = False
                     if len(content) >= args.min_content_chars:
                         break
+                except TavilyConfigurationError as exc:
+                    warnings.append(str(exc))
+                    break
                 except CaptureError as exc:
                     last_error = exc
             if not tavily_depth and last_error:
@@ -1888,7 +1940,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--capture-method", choices=CAPTURE_METHODS, default="manual")
-    parser.add_argument("--content-file", help="UTF-8 file containing captured page content; use - for stdin")
+    parser.add_argument(
+        "--content-file",
+        help="UTF-8 Markdown, text, or HTML capture; HTML is detected automatically; use - for stdin",
+    )
+    parser.add_argument(
+        "--allow-text-only",
+        action="store_true",
+        help="Explicitly accept that a Chrome text capture may omit hyperlinks and HTML structure",
+    )
     parser.add_argument(
         "--html-file",
         help="UTF-8 browser DOM/HTML file to convert into Obsidian-friendly Markdown",
