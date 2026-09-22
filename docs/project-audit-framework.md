@@ -81,8 +81,9 @@ confidence in every other check.
 - `name` and `version` agree across `plugin.json`,
   `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and
   `.codex-plugin/plugin.json`.
-- Each `skills/*/agents/openai.yaml` (where present) matches its
-  `SKILL.md` frontmatter `name`.
+- Each `skills/*/agents/openai.yaml`'s `interface.default_prompt`
+  references the skill by its `SKILL.md` frontmatter `name`, and
+  `interface.display_name` is that name in title case.
 - `claude plugin list` shows no failed-to-load entries.
 - `claude plugin marketplace list` has no stale/orphaned marketplace
   pointing at a worktree or path whose manifest no longer matches its
@@ -110,6 +111,15 @@ Classify each new finding as exactly one of:
 
 ## Phase 4 — Report and reply
 
+Findings classified **Nghiêm trọng** or **Nên sửa** are written as
+unchecked `- [ ]` action items so the next run's Phase 2 can find them;
+**Ghi nhận** findings are written as plain bullets with no checkbox, since
+they carry no follow-up action.
+
+Each axis section lists its findings first (if any), then records what was
+checked and confirmed clean, with the same evidence discipline (`file:line`
+or command output) — so audits stay comparable across runs.
+
 Write `docs/audits/YYYY-MM-DD-project-health.md` using this exact
 structure:
 
@@ -131,11 +141,12 @@ structure:
 | Plugin/marketplace health | ✅/⚠️/❌ |
 
 ## Việc tồn đọng từ lần audit trước
-- [x|] <item> — <resolution evidence, or "vẫn còn" with why>
+- [x] <item> — đã xử lý, xem `file:line`
+- [ ] <item> — vẫn còn, xem `file:line` hoặc lý do chưa xác minh được
 
 ## Finding mới theo trục
 ### Docs ↔ code
-- **<mức độ>** `file:line` — <mô tả> — <bằng chứng> — <đề xuất xử lý>
+- [ ] **<mức độ>** `file:line` — <mô tả> — <bằng chứng> — <đề xuất xử lý>
 
 ### Bảo mật & quyền truy cập
 ...
