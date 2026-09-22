@@ -1542,6 +1542,42 @@ Actual personal note.
         self.assertIn("[[#Real heading one]]", toc)
         self.assertIn("[[#Real heading one#Real heading two|Real heading two]]", toc)
 
+    def test_extracts_only_the_toc_callout_block(self) -> None:
+        content = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#A]]\n"
+            ">   - [[#A#B|B]]\n\n"
+            "# A\n\nBody with a [[#A#B|B]] link too.\n"
+        )
+        block = save_capture._extract_toc_block(content)
+        self.assertIn("[[#A#B|B]]", block)
+        self.assertNotIn("Body with a", block)
+
+    def test_returns_empty_string_when_no_toc_block_exists(self) -> None:
+        self.assertEqual(save_capture._extract_toc_block("# A\n\nBody.\n"), "")
+
+    def test_finds_duplicate_toc_destinations(self) -> None:
+        toc = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#Section]]\n"
+            ">   - [[#Section#Python|Python]]\n"
+            ">   - [[#Section#Python|Python]]\n"
+            ">   - [[#Section#REST|REST]]\n"
+        )
+        self.assertEqual(
+            save_capture._find_duplicate_toc_destinations(toc),
+            ["#Section#Python"],
+        )
+
+    def test_no_duplicates_when_every_destination_is_unique(self) -> None:
+        toc = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#Section]]\n"
+            ">   - [[#Section#Python|Python]]\n"
+            ">   - [[#Section#REST|REST]]\n"
+        )
+        self.assertEqual(save_capture._find_duplicate_toc_destinations(toc), [])
+
     def test_finds_broken_single_backtick_span_crossing_blank_line(self) -> None:
         content = (
             "### REST\n\n"

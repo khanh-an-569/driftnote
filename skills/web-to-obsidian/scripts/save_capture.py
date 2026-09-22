@@ -862,6 +862,32 @@ def _find_unfenced_multiline_code_spans(content: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _extract_toc_block(content: str) -> str:
+    """Return only the ``> [!toc]`` callout's lines, or "" if there is none."""
+
+    lines = content.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith("> [!toc]")), None)
+    if start is None:
+        return ""
+    end = start + 1
+    while end < len(lines) and lines[end].startswith(">"):
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+_TOC_WIKILINK_PATTERN = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+
+def _find_duplicate_toc_destinations(toc: str) -> list[str]:
+    """Return wikilink destinations that appear more than once in ``toc``."""
+
+    seen: dict[str, int] = {}
+    for match in _TOC_WIKILINK_PATTERN.finditer(toc):
+        destination = match.group(1)
+        seen[destination] = seen.get(destination, 0) + 1
+    return sorted(destination for destination, count in seen.items() if count > 1)
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
