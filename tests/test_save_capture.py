@@ -1643,6 +1643,21 @@ Actual personal note.
         content = "## Example\n\n```bash\necho hi\n```\n\n## Next\n\nBody.\n"
         self.assertEqual(save_capture._find_empty_sections(content), [])
 
+    def test_extracts_vietnamese_last_updated_date(self) -> None:
+        content = "...\n\nCập nhật lần gần đây nhất: 2026-08-19 UTC.\n"
+        self.assertEqual(
+            save_capture._extract_reported_update_date(content), "2026-08-19"
+        )
+
+    def test_extracts_english_last_updated_date(self) -> None:
+        content = "...\n\nLast updated: 2026-08-19.\n"
+        self.assertEqual(
+            save_capture._extract_reported_update_date(content), "2026-08-19"
+        )
+
+    def test_returns_none_when_no_update_date_is_present(self) -> None:
+        self.assertIsNone(save_capture._extract_reported_update_date("No date here."))
+
 
 if __name__ == "__main__":
     unittest.main()

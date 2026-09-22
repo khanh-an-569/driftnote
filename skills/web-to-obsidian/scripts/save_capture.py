@@ -932,6 +932,22 @@ def _find_empty_sections(content: str) -> list[str]:
     return empty
 
 
+_UPDATE_DATE_PATTERN = re.compile(
+    r"(?:C[aậ]p nh[aậ]t l[aầ]n g[aầ]n đ[aâ]y nh[aấ]t|Last updated)\s*:\s*"
+    r"(\d{4}-\d{2}-\d{2})",
+    re.IGNORECASE,
+)
+
+
+def _extract_reported_update_date(content: str) -> str | None:
+    """Best-effort extraction of a page's self-reported last-updated date,
+    for visibility only — never used to block a write.
+    """
+
+    match = _UPDATE_DATE_PATTERN.search(content)
+    return match.group(1) if match else None
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
