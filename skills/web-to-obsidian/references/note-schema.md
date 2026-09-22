@@ -34,9 +34,9 @@ Allowed `status` values are `inbox`, `processed`, `needs-review`, and `archived`
 
 Các giá trị `status` được phép là `inbox`, `processed`, `needs-review` và `archived`.
 
-Allowed `capture_method` values are `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid`, and `manual`.
+Allowed `capture_method` values are `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid`, `manual`, and `public-html`.
 
-Các giá trị `capture_method` được phép là `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid` và `manual`.
+Các giá trị `capture_method` được phép là `selection`, `chrome`, `tavily-basic`, `tavily-advanced`, `hybrid`, `manual` và `public-html`.
 
 `source_id` is the first 16 hexadecimal characters of the SHA-256 hash of `canonical_url`. Use it for duplicate detection; do not use the title as the identifier.
 
