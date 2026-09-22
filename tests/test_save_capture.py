@@ -1732,7 +1732,11 @@ Actual personal note.
             self.assertEqual(result["status"], "needs-review")
             self.assertTrue(result["review_issues"])
             review_path = Path(str(result["path"]))
-            self.assertTrue(review_path.is_relative_to(Path(temp_dir) / "00 Inbox" / "Web" / "Needs Review"))
+            self.assertTrue(
+                review_path.is_relative_to(
+                    Path(temp_dir).resolve() / "00 Inbox" / "Web" / "Needs Review"
+                )
+            )
             review_note = review_path.read_text(encoding="utf-8")
             self.assertIn("type: capture-review", review_note)
             self.assertIn("status: needs-review", review_note)
