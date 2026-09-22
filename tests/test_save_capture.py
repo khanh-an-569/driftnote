@@ -1658,6 +1658,36 @@ Actual personal note.
     def test_returns_none_when_no_update_date_is_present(self) -> None:
         self.assertIsNone(save_capture._extract_reported_update_date("No date here."))
 
+    def test_collect_content_review_issues_reports_broken_fence_duplicate_toc_and_empty_section(
+        self,
+    ) -> None:
+        content = (
+            "> [!toc]- Table of contents\n"
+            "> - [[#REST]]\n"
+            ">   - [[#REST#Python|Python]]\n"
+            ">   - [[#REST#Python|Python]]\n\n"
+            "## REST\n\n"
+            "`# 1. Create a File Search store\n"
+            "curl -X POST \"https://example.com\"\n\n"
+            "# 2. Upload directly\n\n"
+            "curl -X POST \"https://example.com/upload\"`\n\n"
+            "## Giá\n\n"
+            "## Bước tiếp theo\n\n"
+            "Body.\n"
+        )
+        issues = save_capture._collect_content_review_issues(content)
+        self.assertEqual(len(issues), 3)
+        self.assertTrue(any("broken" in issue for issue in issues))
+        self.assertTrue(any("REST#Python" in issue for issue in issues))
+        self.assertTrue(any('"Giá"' in issue for issue in issues))
+
+    def test_collect_content_review_issues_is_empty_for_clean_content(self) -> None:
+        content = (
+            "## Intro\n\nBody one.\n\n"
+            "## Details\n\n```bash\n# a real shell comment\necho hi\n```\n\nBody two.\n"
+        )
+        self.assertEqual(save_capture._collect_content_review_issues(content), [])
+
 
 if __name__ == "__main__":
     unittest.main()

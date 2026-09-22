@@ -948,6 +948,34 @@ def _extract_reported_update_date(content: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _collect_content_review_issues(content: str) -> list[str]:
+    """Return blocking reasons the generated source content should not be
+    published as-is. An empty list means the content passed validation.
+    """
+
+    issues: list[str] = []
+
+    for start_line, end_line in _find_unfenced_multiline_code_spans(content):
+        issues.append(
+            f"A single backtick opened on line {start_line} is not closed "
+            f"before line {end_line}; the code fence is broken and any "
+            "headings inside it were likely misread as real headings."
+        )
+
+    for destination in _find_duplicate_toc_destinations(_extract_toc_block(content)):
+        issues.append(
+            f"Table of contents entry `{destination}` appears more than once; "
+            "Obsidian cannot navigate to a unique heading for it."
+        )
+
+    for heading in _find_empty_sections(content):
+        issues.append(
+            f'Section "{heading}" has no body content before the next heading.'
+        )
+
+    return issues
+
+
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
