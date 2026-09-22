@@ -1901,6 +1901,10 @@ Actual personal note.
         response = FakeHttpResponse(html)
         response.headers = {"Content-Type": "text/html; charset=utf-8"}
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
@@ -1914,6 +1918,10 @@ Actual personal note.
         response = FakeHttpResponse(b"just plain text, no markup at all")
         response.headers = {}
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
@@ -1925,6 +1933,10 @@ Actual personal note.
         response = FakeHttpResponse(b"%PDF-1.4 binary data")
         response.headers = {"Content-Type": "application/pdf"}
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
@@ -1941,6 +1953,10 @@ Actual personal note.
         response = FakeHttpResponse(oversized)
         response.headers = {"Content-Type": "text/html"}
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
@@ -1954,6 +1970,10 @@ Actual personal note.
                 raise urllib.error.URLError("refused")
 
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request, "build_opener", return_value=_RaisingOpener()
         ):
             with self.assertRaisesRegex(save_capture.CaptureError, "could not connect"):
@@ -2103,6 +2123,10 @@ Actual personal note.
         response = FakeHttpResponse(html)
         response.headers = {"Content-Type": "text/html"}
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
@@ -2116,6 +2140,10 @@ Actual personal note.
         response = FakeHttpResponse(b"<html><body>irrelevant</body></html>")
         response.headers = {"Content-Type": "text/htmlx"}
         with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=_PUBLIC_GETADDRINFO_RESULT,
+        ), mock.patch.object(
             save_capture.urllib.request,
             "build_opener",
             return_value=_StubOpener(response),
@@ -2153,6 +2181,34 @@ Actual personal note.
                     for warning in result.get("warnings", [])
                 )
             )
+
+    def test_fetch_public_html_refuses_an_unsafe_url_without_opening_a_connection(
+        self,
+    ) -> None:
+        # Defense in depth: the function is safe regardless of whether a
+        # caller remembered the is_safe_public_url_for_tavily() preamble.
+        with mock.patch.object(
+            save_capture.urllib.request, "build_opener"
+        ) as build_opener:
+            with self.assertRaisesRegex(save_capture.CaptureError, "unsafe URL"):
+                save_capture.fetch_public_html("http://127.0.0.1/docs")
+        build_opener.assert_not_called()
+
+    def test_fetch_public_html_refuses_a_host_resolving_to_a_private_address(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            save_capture.socket,
+            "getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))
+            ],
+        ), mock.patch.object(
+            save_capture.urllib.request, "build_opener"
+        ) as build_opener:
+            with self.assertRaisesRegex(save_capture.CaptureError, "not public"):
+                save_capture.fetch_public_html("https://attacker-controlled.example/docs")
+        build_opener.assert_not_called()
 
     def test_counts_pre_table_and_heading_tags_in_html(self) -> None:
         html = (
@@ -2240,6 +2296,67 @@ Actual personal note.
             result = save_capture.run_capture(args)
         self.assertEqual(result["status"], "needs-review")
         self.assertTrue(any("table" in issue for issue in result["review_issues"]))
+
+    def test_run_capture_accepts_a_full_page_whose_chrome_sits_outside_main(
+        self,
+    ) -> None:
+        # html_to_markdown() only converts the selected subtree (<main> here),
+        # so structural elements in <header>/<nav>/<aside>/<footer> are never
+        # expected in the Markdown and must not be counted as lost.
+        html = (
+            "<html><body>"
+            "<header><h1>Example Docs</h1></header>"
+            "<nav class=\"sidebar\">"
+            "<h2>On this page</h2>"
+            "<ul><li><a href=\"#install\">Install</a></li></ul>"
+            "<pre>nav snippet</pre>"
+            "<table><tr><td>nav cell</td></tr></table>"
+            "</nav>"
+            "<aside><h2>Related</h2><p>Other pages.</p></aside>"
+            "<main>"
+            "<h1>Docs</h1><p>Intro paragraph.</p>"
+            "<h2 id=\"install\">Install</h2><p>Install steps.</p>"
+            "<pre>pip install example</pre>"
+            "<h2>Usage</h2><p>Usage notes.</p>"
+            "</main>"
+            "<footer><h2>Legal</h2><p>Terms.</p><h3>Contact</h3>"
+            "<p>Mail us.</p><table><tr><td>footer cell</td></tr></table></footer>"
+            "</body></html>"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_file = Path(temp_dir) / "capture.html"
+            html_file.write_text(html, encoding="utf-8")
+            args = make_args(temp_dir, html_file=str(html_file))
+            result = save_capture.run_capture(args)
+        self.assertEqual(
+            result["status"], "created", msg=result.get("review_issues")
+        )
+
+    def test_count_html_structural_elements_ignores_nodes_outside_the_converted_region(
+        self,
+    ) -> None:
+        html = (
+            "<html><body>"
+            "<nav><h2>TOC</h2><pre>x</pre><table><tr><td>y</td></tr></table></nav>"
+            "<main><h1>T</h1><pre>a</pre></main>"
+            "<footer><h2>Legal</h2></footer>"
+            "</body></html>"
+        )
+        counts = save_capture._count_html_structural_elements(html)
+        self.assertEqual(counts, {"pre": 1, "table": 0, "heading": 1})
+
+    def test_count_html_structural_elements_ignores_comments_and_templates(self) -> None:
+        html = (
+            "<main>"
+            "<h1>T</h1>"
+            "<!-- <h2>Commented</h2><pre>nope</pre> -->"
+            "<script type=\"text/x-template\">"
+            "<h2>Templated</h2><table><tr><td>z</td></tr></table>"
+            "</script>"
+            "</main>"
+        )
+        counts = save_capture._count_html_structural_elements(html)
+        self.assertEqual(counts, {"pre": 0, "table": 0, "heading": 1})
 
     def test_same_page_fragment_link_resolves_to_the_heading_it_sits_on(self) -> None:
         html = (

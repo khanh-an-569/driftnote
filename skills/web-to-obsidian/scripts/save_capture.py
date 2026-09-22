@@ -666,6 +666,32 @@ def _find_html_node(root: HtmlNode, predicate: object) -> HtmlNode | None:
     return None
 
 
+def _parse_html_tree(html: str) -> HtmlNode:
+    """Parse HTML into the node tree every rich-HTML path operates on."""
+
+    parser = _HtmlTreeParser()
+    parser.feed(html)
+    parser.close()
+    return parser.root
+
+
+def _select_conversion_root(root: HtmlNode) -> HtmlNode:
+    """Pick the single subtree html_to_markdown() converts. Shared with the
+    structural-loss counters (rather than duplicated) so the converter and
+    the loss detector can never disagree about which region "the converted
+    content" is — counting the whole document would flag every heading in a
+    page's <header>/<nav>/<aside>/<footer> as lost content.
+    """
+
+    return (
+        _find_html_node(root, lambda node: node.tag == "article")
+        or _find_html_node(root, lambda node: node.tag == "main")
+        or _find_html_node(root, lambda node: node.attrs.get("role", "").lower() == "main")
+        or _find_html_node(root, lambda node: node.tag == "body")
+        or root
+    )
+
+
 def _direct_children(node: HtmlNode, tag: str) -> list[HtmlNode]:
     return [
         child
@@ -1029,20 +1055,44 @@ def _extract_reported_update_date(content: str) -> str | None:
     return match.group(1) if match else None
 
 
-_HTML_STRUCTURAL_TAG_PATTERN = re.compile(r"<(pre|table|h[1-6])\b", re.IGNORECASE)
+_HTML_HEADING_TAG_PATTERN = re.compile(r"h[1-6]")
 _MARKDOWN_TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
 
 
+def _tally_structural_elements(node: HtmlNode, counts: dict[str, int]) -> None:
+    """Accumulate pre/table/heading counts for one node and its descendants,
+    skipping the subtrees the renderer itself drops so an element that is
+    never meant to survive conversion is never counted as lost.
+    """
+
+    if (
+        node.tag in _HtmlMarkdownRenderer._IGNORED_TAGS
+        or node.attrs.get("id") in _HtmlMarkdownRenderer._IGNORED_IDS
+    ):
+        return
+    if node.tag == "pre":
+        counts["pre"] += 1
+    elif node.tag == "table":
+        counts["table"] += 1
+    elif _HTML_HEADING_TAG_PATTERN.fullmatch(node.tag):
+        counts["heading"] += 1
+    for child in node.children:
+        if isinstance(child, HtmlNode):
+            _tally_structural_elements(child, counts)
+
+
 def _count_html_structural_elements(html: str) -> dict[str, int]:
+    """Count structural elements inside the region html_to_markdown() would
+    actually convert — the subtree picked by the shared
+    _select_conversion_root() — not across the whole document. Counting the
+    raw HTML string instead would charge the conversion for every <pre>,
+    <table> and heading that lives in page chrome outside that subtree (or
+    inside an HTML comment or a <script> template), none of which the
+    converter ever sees.
+    """
+
     counts = {"pre": 0, "table": 0, "heading": 0}
-    for match in _HTML_STRUCTURAL_TAG_PATTERN.finditer(html):
-        tag = match.group(1).lower()
-        if tag == "pre":
-            counts["pre"] += 1
-        elif tag == "table":
-            counts["table"] += 1
-        else:
-            counts["heading"] += 1
+    _tally_structural_elements(_select_conversion_root(_parse_html_tree(html)), counts)
     return counts
 
 
@@ -1075,7 +1125,8 @@ def _find_structural_content_loss(html: str, content: str) -> list[str]:
     converted Markdown, to catch content silently dropped inside
     html_to_markdown() itself — a different failure mode than a malformed
     Markdown input (Tasks 1-4), which only validates Markdown that has
-    already been produced.
+    already been produced. Both sides are scoped to the region that was
+    actually converted, so page chrome outside it never counts as loss.
     """
 
     html_counts = _count_html_structural_elements(html)
@@ -1086,7 +1137,8 @@ def _find_structural_content_loss(html: str, content: str) -> list[str]:
         if markdown_counts[key] < html_counts[key]:
             issues.append(
                 f"Conversion lost {html_counts[key] - markdown_counts[key]} "
-                f"{label}(s): {html_counts[key]} in the source HTML, only "
+                f"{label}(s): {html_counts[key]} in the converted region of "
+                f"the source HTML, only "
                 f"{markdown_counts[key]} in the converted Markdown."
             )
     return issues
@@ -1128,17 +1180,8 @@ def _collect_content_review_issues(
 def html_to_markdown(html: str, base_url: str, *, heading_offset: int = 0) -> str:
     """Convert browser-authorized HTML into Obsidian-friendly Markdown."""
 
-    parser = _HtmlTreeParser()
-    parser.feed(html)
-    parser.close()
-    root = parser.root
-    selected = (
-        _find_html_node(root, lambda node: node.tag == "article")
-        or _find_html_node(root, lambda node: node.tag == "main")
-        or _find_html_node(root, lambda node: node.attrs.get("role", "").lower() == "main")
-        or _find_html_node(root, lambda node: node.tag == "body")
-        or root
-    )
+    root = _parse_html_tree(html)
+    selected = _select_conversion_root(root)
     renderer = _HtmlMarkdownRenderer(
         base_url,
         heading_offset=heading_offset,
@@ -1715,7 +1758,10 @@ class _SafePublicHtmlRedirectHandler(urllib.request.HTTPRedirectHandler):
     check used for the original URL, cap the number of hops, and never
     forward cookies or auth headers across a hop. Without this, a URL that
     is safe at request time could still redirect to a private IP or
-    localhost (SSRF via redirect, including DNS rebinding).
+    localhost (SSRF via redirect). Note: like _is_public_html_host_safe(),
+    this resolves and then connects without pinning the resolved address,
+    so an attacker who flips the DNS record between validation and
+    connection (classic DNS rebinding) is not stopped by this alone.
     """
 
     def __init__(self) -> None:
@@ -1743,11 +1789,23 @@ class _SafePublicHtmlRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def fetch_public_html(url: str, timeout: float = 15.0) -> str:
-    """Fetch a public URL's raw HTML directly, no browser involved. Callers
-    must gate the *original* URL with is_safe_public_url_for_tavily() first;
-    this function re-validates every redirect hop on top of that, caps
-    redirects and response size, and never forwards cookies or auth headers.
+    """Fetch a public URL's raw HTML directly, no browser involved. Safe by
+    construction regardless of caller discipline: the *original* URL is
+    gated here with is_safe_public_url_for_tavily() and
+    _is_public_html_host_safe() before any connection is made, and every
+    redirect hop is re-validated the same way. Redirects and response size
+    are capped and cookies/auth headers are never forwarded across a hop.
+    run_capture() runs the same two checks itself before calling this, so it
+    can report "skipped for safety" separately from "the fetch failed"; that
+    makes these checks redundant on that path, which is the point.
     """
+
+    safe, reason = is_safe_public_url_for_tavily(url)
+    if not safe:
+        raise CaptureError(f"Public HTML fetch refused an unsafe URL: {reason}.")
+    host_safe, host_reason = _is_public_html_host_safe(url)
+    if not host_safe:
+        raise CaptureError(f"Public HTML fetch refused an unsafe URL: {host_reason}.")
 
     request = urllib.request.Request(
         url,
